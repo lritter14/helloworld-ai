@@ -1,6 +1,27 @@
 package http
 
-import "net/http"
+import (
+	"context"
+	"log/slog"
+	"net/http"
+)
+
+type contextKey string
+
+const loggerKey contextKey = "logger"
+
+// LoggerMiddleware adds a structured logger to the request context.
+func LoggerMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		logger := slog.Default().With(
+			"method", r.Method,
+			"path", r.URL.Path,
+			"remote_addr", r.RemoteAddr,
+		)
+		ctx := context.WithValue(r.Context(), loggerKey, logger)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
 
 // CORS adds CORS headers to allow cross-origin requests.
 func CORS(next http.Handler) http.Handler {

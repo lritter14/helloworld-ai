@@ -25,6 +25,9 @@ func NewRouter(deps *Deps) http.Handler {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	// Add structured logging middleware
+	r.Use(LoggerMiddleware)
+
 	// Add CORS middleware
 	r.Use(CORS)
 

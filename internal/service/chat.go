@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 )
 
 // LLMClient is an interface for interacting with an LLM API.
@@ -16,7 +16,7 @@ type LLMClient interface {
 
 // ChatRequest represents a chat request in the domain layer.
 type ChatRequest struct {
-	Message string
+	Message string `validate:"required"`
 }
 
 // ChatResponse represents a chat response in the domain layer.
@@ -35,28 +35,45 @@ type ChatService interface {
 // chatService implements ChatService.
 type chatService struct {
 	llmClient LLMClient
+	logger    *slog.Logger
 }
 
 // NewChatService creates a new ChatService.
 func NewChatService(llmClient LLMClient) ChatService {
 	return &chatService{
 		llmClient: llmClient,
+		logger:    slog.Default(),
 	}
 }
 
 // ProcessChat processes a chat request.
 func (s *chatService) ProcessChat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
+	logger := s.logger
+	type loggerKeyType string
+	const loggerKey loggerKeyType = "logger"
+	if ctxLogger := ctx.Value(loggerKey); ctxLogger != nil {
+		if l, ok := ctxLogger.(*slog.Logger); ok {
+			logger = l
+		}
+	}
+
 	// Business validation
 	if req.Message == "" {
-		return ChatResponse{}, fmt.Errorf("message cannot be empty")
+		logger.WarnContext(ctx, "empty message in chat request")
+		return ChatResponse{}, &ValidationError{
+			Field:   "message",
+			Message: "cannot be empty",
+		}
 	}
 
 	// Call external LLM service
 	reply, err := s.llmClient.Chat(ctx, req.Message)
 	if err != nil {
-		return ChatResponse{}, fmt.Errorf("failed to get LLM response: %w", err)
+		logger.ErrorContext(ctx, "failed to get LLM response", "error", err)
+		return ChatResponse{}, WrapError(err, "failed to get LLM response")
 	}
 
+	logger.InfoContext(ctx, "chat request processed successfully", "message_length", len(req.Message), "reply_length", len(reply))
 	return ChatResponse{
 		Reply: reply,
 	}, nil
@@ -64,12 +81,32 @@ func (s *chatService) ProcessChat(ctx context.Context, req ChatRequest) (ChatRes
 
 // StreamChat processes a chat request and streams the response.
 func (s *chatService) StreamChat(ctx context.Context, req ChatRequest, callback func(chunk string) error) error {
+	logger := s.logger
+	type loggerKeyType string
+	const loggerKey loggerKeyType = "logger"
+	if ctxLogger := ctx.Value(loggerKey); ctxLogger != nil {
+		if l, ok := ctxLogger.(*slog.Logger); ok {
+			logger = l
+		}
+	}
+
 	// Business validation
 	if req.Message == "" {
-		return fmt.Errorf("message cannot be empty")
+		logger.WarnContext(ctx, "empty message in streaming chat request")
+		return &ValidationError{
+			Field:   "message",
+			Message: "cannot be empty",
+		}
 	}
 
 	// Call external LLM service with streaming
-	return s.llmClient.StreamChat(ctx, req.Message, callback)
+	err := s.llmClient.StreamChat(ctx, req.Message, callback)
+	if err != nil {
+		logger.ErrorContext(ctx, "failed to stream LLM response", "error", err)
+		return WrapError(err, "failed to stream LLM response")
+	}
+
+	logger.InfoContext(ctx, "streaming chat request processed successfully", "message_length", len(req.Message))
+	return nil
 }
 
