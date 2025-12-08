@@ -1,0 +1,56 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*bin/
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories (if using vendoring)
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Go modules cache
+/go/pkg/
+/go/bin/
+
+# IDE/editor/project files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Environment files (optional, if secret keys stored)
+.env
+.env.*
+
+# Tilt
+.tilt/
+tilt.log
+
+# Database files (runtime data)
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# React frontend
+frontend-react/node_modules/
+frontend-react/dist/
+frontend-react/.env
+frontend-react/.env.local
+

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HelloWorld AI Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #fff;
+            margin-bottom: 10px;
+        }
+        .output {
+            background: #2a2a2a;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            padding: 20px;
+            min-height: 400px;
+            max-height: 600px;
+            overflow-y: auto;
+            word-wrap: break-word;
+            font-size: 14px;
+            line-height: 1.8;
+        }
+        .output p {
+            margin: 0.75em 0;
+        }
+        .output p:first-child {
+            margin-top: 0;
+        }
+        .output p:last-child {
+            margin-bottom: 0;
+        }
+        .output strong {
+            font-weight: 600;
+            color: #fff;
+        }
+        .output em {
+            font-style: italic;
+        }
+        .output ul, .output ol {
+            margin: 0.75em 0;
+            padding-left: 1.5em;
+        }
+        .output li {
+            margin: 0.25em 0;
+        }
+        .output code {
+            background: #1a1a1a;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .output pre {
+            background: #1a1a1a;
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 0.75em 0;
+        }
+        .output pre code {
+            background: transparent;
+            padding: 0;
+        }
+        .output h1, .output h2, .output h3 {
+            margin: 1em 0 0.5em 0;
+            color: #fff;
+            font-weight: 600;
+        }
+        .output h1:first-child, .output h2:first-child, .output h3:first-child {
+            margin-top: 0;
+        }
+        .ai-response {
+            /* Markdown will handle formatting, but preserve whitespace for code blocks */
+        }
+        .ai-response pre {
+            white-space: pre-wrap;
+        }
+        .message-label {
+            font-weight: 600;
+            color: #4a9eff;
+            margin-bottom: 0.5em;
+            display: block;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+        textarea {
+            flex: 1;
+            background: #2a2a2a;
+            border: 1px solid #3a3a3a;
+            border-radius: 8px;
+            padding: 12px;
+            color: #e0e0e0;
+            font-size: 14px;
+            font-family: inherit;
+            resize: vertical;
+            min-height: 60px;
+        }
+        textarea:focus {
+            outline: none;
+            border-color: #4a9eff;
+        }
+        button {
+            background: #4a9eff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            padding: 12px 24px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover:not(:disabled) {
+            background: #3a8eef;
+        }
+        button:disabled {
+            background: #3a3a3a;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        .error {
+            color: #ff6b6b;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 HelloWorld AI Chat</h1>
+        <div id="output" class="output">Ready to chat...</div>
+        <div class="input-container">
+            <textarea id="input" placeholder="Type your message here..."></textarea>
+            <button id="sendBtn" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        const API_URL = window.location.origin;
+        const output = document.getElementById('output');
+        const input = document.getElementById('input');
+        const sendBtn = document.getElementById('sendBtn');
+        let isStreaming = false;
+        let accumulatedContent = '';
+
+        // Configure marked for better formatting
+        if (typeof marked !== 'undefined') {
+            marked.setOptions({
+                breaks: true,  // Convert single \n to <br>
+                gfm: true,     // GitHub Flavored Markdown
+            });
+        }
+
+        function renderMarkdown(text) {
+            if (typeof marked !== 'undefined') {
+                // Ensure newlines are preserved - marked with breaks:true converts \n to <br>
+                return marked.parse(text);
+            }
+            // Fallback: simple markdown-like rendering
+            return simpleMarkdown(text);
+        }
+
+        function simpleMarkdown(text) {
+            // Escape HTML first
+            text = escapeHtml(text);
+            // Bold **text**
+            text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+            // Italic *text*
+            text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+            // Code `text`
+            text = text.replace(/`(.+?)`/g, '<code>$1</code>');
+            // Line breaks
+            text = text.replace(/\n\n/g, '</p><p>');
+            text = text.replace(/\n/g, '<br>');
+            return '<p>' + text + '</p>';
+        }
+
+        function appendToOutput(text, isError = false) {
+            if (isError) {
+                output.innerHTML += `<span class="error">${escapeHtml(text)}</span>`;
+            } else {
+                // Preserve newlines - they might come as separate chunks or embedded
+                accumulatedContent += text;
+                // Update the AI response div with rendered markdown
+                const aiResponseDiv = output.querySelector('.ai-response');
+                if (aiResponseDiv) {
+                    // Render markdown which will convert \n to <br> with breaks: true
+                    aiResponseDiv.innerHTML = renderMarkdown(accumulatedContent);
+                }
+            }
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function sendMessage() {
+            const message = input.value.trim();
+            if (!message || isStreaming) return;
+
+            // Clear output and show user message
+            accumulatedContent = '';
+            output.innerHTML = `<span class="message-label">You:</span><div>${escapeHtml(message)}</div><br><span class="message-label">AI:</span><div class="ai-response"></div>`;
+            input.value = '';
+            sendBtn.disabled = true;
+            isStreaming = true;
+
+            try {
+                const response = await fetch(`${API_URL}/api/chat?stream=true`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: message })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+
+                // Read streaming response
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            
+                            if (data === '[DONE]') {
+                                // Final render of accumulated content
+                                const aiResponseDiv = output.querySelector('.ai-response');
+                                if (aiResponseDiv) {
+                                    aiResponseDiv.innerHTML = renderMarkdown(accumulatedContent);
+                                }
+                                sendBtn.disabled = false;
+                                isStreaming = false;
+                                return;
+                            }
+
+                            // Append chunk to output
+                            appendToOutput(data);
+                        }
+                    }
+                }
+            } catch (err) {
+                appendToOutput(`\n\nError: ${err.message}`, true);
+            } finally {
+                sendBtn.disabled = false;
+                isStreaming = false;
+            }
+        }
+
+        // Allow Enter to send (Shift+Enter for new line)
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    </script>
+</body>
+</html>
+

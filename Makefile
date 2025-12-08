@@ -1,0 +1,86 @@
+.PHONY: run run-api start stop tilt-up tilt-down tilt-restart start-llama lint test build build-api deps clean help
+
+# llama.cpp server configuration
+LLAMA_SERVER ?= ../llama.cpp/build/bin/llama-server
+LLAMA_MODEL ?= ../llama.cpp/models/llama-3-8b-instruct-q4_k_m.gguf
+LLAMA_PORT ?= 8080
+
+# API port
+API_PORT ?= 9000
+
+help:
+	@echo "Available targets:"
+	@echo "  start/run     - Start all services using Tilt (llama-server, API)"
+	@echo "  stop          - Stop all services using Tilt"
+	@echo "  tilt-up       - Start all services using Tilt"
+	@echo "  tilt-down     - Stop all services using Tilt"
+	@echo "  tilt-restart  - Restart all services using Tilt"
+	@echo "  start-llama   - Start llama.cpp server only (port $(LLAMA_PORT))"
+	@echo "  run-api       - Run the API server only (without Tilt)"
+	@echo "  lint          - Run Go linter"
+	@echo "  test          - Run Go tests"
+	@echo "  build         - Build API binary"
+	@echo "  build-api     - Build the API binary"
+	@echo "  deps          - Install Go dependencies"
+	@echo "  clean         - Remove build artifacts"
+
+# Default target - start all services with Tilt
+run: start
+
+# Start all services using Tilt (recommended)
+start: tilt-up
+
+# Stop all services using Tilt
+stop: tilt-down
+
+tilt-up:
+	@tilt up
+
+tilt-down:
+	@tilt down
+
+tilt-restart:
+	@tilt down && tilt up
+
+start-llama:
+	@if [ ! -f "$(LLAMA_SERVER)" ]; then \
+		echo "Error: llama-server not found at $(LLAMA_SERVER)"; \
+		echo "Please build llama.cpp first: cd ../llama.cpp && make"; \
+		exit 1; \
+	fi
+	@if [ ! -f "$(LLAMA_MODEL)" ]; then \
+		echo "Warning: Model file not found at $(LLAMA_MODEL)"; \
+		echo "Starting server with Hugging Face model download..."; \
+		$(LLAMA_SERVER) -hf ggml-org/llama-3-8b-instruct-GGUF --port $(LLAMA_PORT); \
+	else \
+		echo "Starting llama.cpp server on port $(LLAMA_PORT) with model $(LLAMA_MODEL)"; \
+		$(LLAMA_SERVER) -m $(LLAMA_MODEL) --port $(LLAMA_PORT); \
+	fi
+
+run-api:
+	@go run ./cmd/api
+
+lint:
+	@golangci-lint run || go vet ./...
+
+test:
+	@go test ./...
+
+build: build-api
+
+build-api:
+	@mkdir -p bin
+	@go build -o bin/helloworld-ai-api ./cmd/api
+	@echo "Binary built: bin/helloworld-ai-api"
+
+deps: deps-go
+
+deps-go:
+	@go mod download
+	@go mod tidy
+
+clean:
+	@rm -rf bin/
+	@rm -rf .tilt/
+	@rm -f tilt.log
+
