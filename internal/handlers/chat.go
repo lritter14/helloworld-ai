@@ -158,13 +158,13 @@ func (h *ChatHandler) handleStreamingChat(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		logger.ErrorContext(ctx, "error streaming chat", "error", err)
 		// Send error as SSE
-		fmt.Fprintf(w, "data: {\"error\":\"%s\"}\n\n", err.Error())
+		_, _ = fmt.Fprintf(w, "data: {\"error\":\"%s\"}\n\n", err.Error())
 		flusher.Flush()
 		return
 	}
 
 	// Send done signal
-	fmt.Fprintf(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprintf(w, "data: [DONE]\n\n")
 	flusher.Flush()
 }
 

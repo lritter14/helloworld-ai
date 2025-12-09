@@ -17,7 +17,7 @@ func New(path string) (*sql.DB, error) {
 
 	// Enable foreign keys (disabled by default in SQLite)
 	if _, err := db.Exec("PRAGMA foreign_keys = ON;"); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -28,7 +28,7 @@ func New(path string) (*sql.DB, error) {
 
 	// Verify connection
 	if err := db.Ping(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 
@@ -74,4 +74,3 @@ func Migrate(db *sql.DB) error {
 
 	return nil
 }
-

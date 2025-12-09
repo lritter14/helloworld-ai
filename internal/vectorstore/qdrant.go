@@ -81,7 +81,7 @@ func (s *QdrantStore) Upsert(ctx context.Context, collection string, points []Po
 			Vectors: qdrant.NewVectors(point.Vec...),
 		}
 
-		if point.Meta != nil && len(point.Meta) > 0 {
+		if len(point.Meta) > 0 {
 			qdrantPoint.Payload = qdrant.NewValueMap(point.Meta)
 		}
 

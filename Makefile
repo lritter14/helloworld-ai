@@ -1,4 +1,4 @@
-.PHONY: run run-api start stop tilt-up tilt-down tilt-restart start-llama lint test build build-api deps clean help
+.PHONY: run run-api start stop tilt-up tilt-down tilt-restart start-llama lint test build build-api deps clean help generate-mocks
 
 # llama.cpp server configuration
 LLAMA_SERVER ?= ../llama.cpp/build/bin/llama-server
@@ -21,6 +21,7 @@ help:
 	@echo "  test          - Run Go tests"
 	@echo "  build-api     - Build the API binary (outputs to bin/helloworld-ai-api)"
 	@echo "  deps          - Install Go dependencies"
+	@echo "  generate-mocks - Generate mock files for testing"
 	@echo "  clean         - Remove build artifacts"
 
 # Default target - start all services with Tilt
@@ -63,7 +64,12 @@ lint:
 	@golangci-lint run || go vet ./...
 
 test:
-	@go test ./...
+	@go test -v ./...
+
+generate-mocks:
+	@echo "Generating mocks..."
+	@go generate ./...
+	@echo "Mocks generated successfully"
 
 
 build-api:

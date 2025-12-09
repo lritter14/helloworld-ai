@@ -1,5 +1,7 @@
 package storage
 
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_note_store.go -package=mocks helloworld-ai/internal/storage NoteStore
+
 import (
 	"context"
 	"database/sql"

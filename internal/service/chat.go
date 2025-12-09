@@ -1,5 +1,8 @@
 package service
 
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_llm_client.go -package=mocks helloworld-ai/internal/service LLMClient
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_chat_service.go -package=mocks -mock_names=ChatService=MockChatService helloworld-ai/internal/service ChatService
+
 import (
 	"context"
 	"log/slog"
@@ -109,4 +112,3 @@ func (s *chatService) StreamChat(ctx context.Context, req ChatRequest, callback 
 	logger.InfoContext(ctx, "streaming chat request processed successfully", "message_length", len(req.Message))
 	return nil
 }
-

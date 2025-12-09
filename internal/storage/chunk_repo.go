@@ -1,5 +1,7 @@
 package storage
 
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_chunk_store.go -package=mocks helloworld-ai/internal/storage ChunkStore
+
 import (
 	"context"
 	"database/sql"
@@ -62,7 +64,9 @@ func (r *ChunkRepo) ListIDsByNote(ctx context.Context, noteID string) ([]string,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query chunk IDs: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var ids []string
 	for rows.Next() {

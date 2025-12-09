@@ -435,7 +435,47 @@ When developing with Tilt, configuration values are stored in `.env` file at the
 - Interfaces for dependencies - Services depend on interfaces, not concrete types
 - Wire dependencies in main - All dependency wiring happens in `cmd/api/main.go`
 
-## 13. General Go Best Practices
+## 13. Testing
+
+### 13.1 Testing Guidelines
+
+- Write unit tests for each package
+- Use `gomock` for generating mocks of interfaces
+- Mocks are generated in subdirectories (e.g., `internal/service/mocks/`)
+- Use `//go:generate` directives in source files to generate mocks
+- Run `make generate-mocks` or `go generate ./...` to regenerate mocks
+- Some test files use `_test` packages (e.g., `service_test`) to avoid import cycles when using mocks
+
+### 13.2 Mock Generation
+
+Mocks are generated using `gomock` with `//go:generate` directives:
+
+```go
+//go:generate mockgen -destination=mocks/mock_llm_client.go -package=mocks -self_package=helloworld-ai/internal/service/mocks helloworld-ai/internal/service LLMClient
+```
+
+Run mock generation:
+
+```bash
+make generate-mocks
+# Or:
+go generate ./...
+```
+
+### 13.3 Running Tests
+
+```bash
+# Run all tests
+make test
+
+# Run tests for specific package
+go test ./internal/service -v
+
+# Run tests with coverage
+go test ./... -cover
+```
+
+## 14. General Go Best Practices
 
 - Use `go:embed` for embedding static files (e.g., HTML) in binary
 - Defer cleanup - Always defer resource cleanup (e.g., `defer db.Close()`)

@@ -224,10 +224,7 @@ func (c *Client) ChatWithMessages(ctx context.Context, messages []Message, param
 	// Convert []Message to []ChatMessage for internal API call
 	chatMessages := make([]ChatMessage, len(messages))
 	for i, msg := range messages {
-		chatMessages[i] = ChatMessage{
-			Role:    msg.Role,
-			Content: msg.Content,
-		}
+		chatMessages[i] = ChatMessage(msg) // Direct conversion since structs are identical
 	}
 
 	// Use params.Model if provided, otherwise fallback to client's default model

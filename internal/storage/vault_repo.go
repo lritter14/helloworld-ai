@@ -1,5 +1,7 @@
 package storage
 
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_vault_store.go -package=mocks helloworld-ai/internal/storage VaultStore
+
 import (
 	"context"
 	"database/sql"
@@ -80,7 +82,9 @@ func (r *VaultRepo) ListAll(ctx context.Context) ([]VaultRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to query vaults: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var vaults []VaultRecord
 	for rows.Next() {

@@ -31,7 +31,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
-	defer db.Close()
+	defer func() {
+		_ = db.Close()
+	}()
 
 	if err := storage.Migrate(db); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)

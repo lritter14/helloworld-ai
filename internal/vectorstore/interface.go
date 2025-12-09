@@ -1,5 +1,7 @@
 package vectorstore
 
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_vector_store.go -package=mocks helloworld-ai/internal/vectorstore VectorStore
+
 import "context"
 
 // Point represents a vector point with metadata.

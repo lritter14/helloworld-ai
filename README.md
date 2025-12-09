@@ -193,10 +193,37 @@ make stop     # Stop all services
 ### Using Make
 
 ```bash
-make lint     # Run Go linter
-make test     # Run Go tests
-make deps     # Install Go dependencies
+make lint          # Run Go linter
+make test          # Run Go tests
+make generate-mocks # Generate mock files for testing
+make deps          # Install Go dependencies
 ```
+
+### Testing
+
+The project uses [gomock](https://github.com/uber-go/mock) for generating mocks. To generate mocks:
+
+```bash
+make generate-mocks
+# Or use go generate directly:
+go generate ./...
+```
+
+Run all tests:
+
+```bash
+make test
+# Or:
+go test ./...
+```
+
+Run tests for a specific package:
+
+```bash
+go test ./internal/service -v
+```
+
+**Note:** Mocks are generated in subdirectories (e.g., `internal/service/mocks/`) to avoid import cycles. Some test files use `_test` packages (e.g., `service_test`) to properly import mocks.
 
 ## Deployment
 
