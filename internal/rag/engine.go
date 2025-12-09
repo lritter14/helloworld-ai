@@ -171,6 +171,8 @@ Instructions:
 - No explanations, no reasoning, no markdown formatting
 - Use this exact format: ["vaultname/folder1", "vaultname/folder2", ...]
 - Order folders from most relevant to least relevant
+- Only include folders that are DIRECTLY relevant to answering the question
+- Exclude folders that are only tangentially related
 - Only include folders from the available list above
 
 Your response (JSON array only):`, question, folderList)
@@ -506,6 +508,28 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 			}
 		}
 	}
+
+	// Filter out low-relevance results by score threshold
+	const minScoreThreshold = float32(0.55)
+	beforeFilterCount := len(deduplicated)
+	filtered := make([]vectorstore.SearchResult, 0, len(deduplicated))
+	for _, result := range deduplicated {
+		if result.Score >= minScoreThreshold {
+			filtered = append(filtered, result)
+		} else {
+			logger.DebugContext(ctx, "filtering out low-score result",
+				"score", result.Score,
+				"point_id", result.PointID,
+			)
+		}
+	}
+	deduplicated = filtered
+
+	logger.InfoContext(ctx, "filtered results by score threshold",
+		"before_filter", beforeFilterCount,
+		"after_filter", len(filtered),
+		"min_threshold", minScoreThreshold,
+	)
 
 	// Take top K results
 	if len(deduplicated) > k {

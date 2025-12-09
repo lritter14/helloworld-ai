@@ -4,20 +4,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"helloworld-ai/internal/service/mocks"
-	"go.uber.org/mock/gomock"
 )
 
 func TestNewRouter(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-		mockChatService := mocks.NewMockChatService(ctrl)
-
 	deps := &Deps{
-		ChatService: mockChatService,
-		IndexHTML:   "<html><body>Test</body></html>",
+		IndexHTML: "<html><body>Test</body></html>",
 	}
 
 	router := NewRouter(deps)
@@ -28,14 +19,8 @@ func TestNewRouter(t *testing.T) {
 }
 
 func TestRouter_Routes(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-		mockChatService := mocks.NewMockChatService(ctrl)
-
 	deps := &Deps{
-		ChatService: mockChatService,
-		IndexHTML:   "<html><body>Test</body></html>",
+		IndexHTML: "<html><body>Test</body></html>",
 	}
 
 	router := NewRouter(deps)
@@ -53,15 +38,15 @@ func TestRouter_Routes(t *testing.T) {
 			wantStatus: http.StatusOK,
 		},
 		{
-			name:       "POST /api/chat exists",
+			name:       "POST /api/v1/ask exists",
 			method:     http.MethodPost,
-			path:       "/api/chat",
+			path:       "/api/v1/ask",
 			wantStatus: http.StatusBadRequest, // Bad request due to invalid body, but route exists
 		},
 		{
-			name:       "GET /api/chat method not allowed",
+			name:       "GET /api/v1/ask method not allowed",
 			method:     http.MethodGet,
-			path:       "/api/chat",
+			path:       "/api/v1/ask",
 			wantStatus: http.StatusMethodNotAllowed,
 		},
 	}
@@ -81,15 +66,9 @@ func TestRouter_Routes(t *testing.T) {
 }
 
 func TestRouter_RootServesHTML(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-		mockChatService := mocks.NewMockChatService(ctrl)
-
 	htmlContent := "<html><body>Test HTML</body></html>"
 	deps := &Deps{
-		ChatService: mockChatService,
-		IndexHTML:   htmlContent,
+		IndexHTML: htmlContent,
 	}
 
 	router := NewRouter(deps)
@@ -113,19 +92,13 @@ func TestRouter_RootServesHTML(t *testing.T) {
 }
 
 func TestRouter_MiddlewareApplied(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockChatService := mocks.NewMockChatService(ctrl)
-
 	deps := &Deps{
-		ChatService: mockChatService,
-		IndexHTML:   "<html></html>",
+		IndexHTML: "<html></html>",
 	}
 
 	router := NewRouter(deps)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/chat", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/ask", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)

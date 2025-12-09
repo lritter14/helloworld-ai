@@ -52,6 +52,11 @@ type ReferenceResponse struct {
 	ChunkIndex  int    `json:"chunk_index"`
 }
 
+// ErrorResponse represents an error response.
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
 // getLogger extracts logger from context or returns default logger.
 func (h *AskHandler) getLogger(ctx context.Context) *slog.Logger {
 	type loggerKeyType string

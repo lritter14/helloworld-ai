@@ -124,8 +124,8 @@ API_PORT=9000 go run ./cmd/api
 The API server serves:
 
 - Web UI at `http://localhost:9000/`
-- Chat API endpoint at `http://localhost:9000/api/chat` (basic LLM chat)
 - RAG API endpoint at `http://localhost:9000/api/v1/ask` (question-answering over indexed notes with intelligent folder selection)
+- Index API endpoint at `http://localhost:9000/api/index` (trigger re-indexing)
 
 ### Indexing
 

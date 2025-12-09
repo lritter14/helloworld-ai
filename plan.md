@@ -17,11 +17,8 @@ This plan outlines the implementation of a RAG (Retrieval-Augmented Generation) 
 - **Phase 1:** Config package (`internal/config/config.go`) - loads env vars with validation and automatic `.env` file loading
 - **Phase 1:** HTTP router extracted to `internal/http/router.go` using chi router
 - **Phase 1:** CORS middleware extracted to `internal/http/middleware.go`
-- **Phase 1:** Embedded HTML UI with streaming chat interface (`cmd/api/index.html`)
+- **Phase 1:** Embedded HTML UI (`cmd/api/index.html`)
 - **Phase 1:** LLM client for chat completions (`internal/llm/client.go`)
-- **Phase 1:** Service layer for chat (`internal/service/chat.go`)
-- **Phase 1:** Chat handler with streaming support (`internal/handlers/chat.go`)
-- **Phase 1:** Route: `POST /api/chat` (basic chat, not RAG yet)
 - **Phase 2:** SQLite database connection and migrations (`internal/storage/database.go`)
 - **Phase 2:** Storage models (`internal/storage/models.go`) - Vault, Note, Chunk structs
 - **Phase 2:** Vault repository (`internal/storage/vault_repo.go`) - GetOrCreateByName, ListAll
@@ -136,7 +133,7 @@ Content: [chunk text here]
 - If indexing fails for a file, log error and continue with other files
 
 ### 0.16 Streaming for RAG
-**Decision:** **Do NOT stream RAG responses** initially. Return complete `AskResponse` with answer and references. Streaming can be added later if needed. Keep `/api/chat` endpoint for streaming basic chat.
+**Decision:** **Do NOT stream RAG responses** initially. Return complete `AskResponse` with answer and references. Streaming can be added later if needed.
 
 ### 0.17 Database Path
 **Decision:** Default `DB_PATH = "./data/helloworld-ai.db"`. Create `./data` directory if it doesn't exist.
@@ -164,13 +161,14 @@ Content: [chunk text here]
 - `note_title` (string)
 
 ### 0.21 HTTP Router Structure
-**Decision:** Extract router to `internal/http/router.go` with `NewRouter(deps *Deps) http.Handler`. Use **chi router** (`github.com/go-chi/chi/v5`) instead of standard library. Move CORS middleware to `internal/http/middleware.go`. Keep existing `/api/chat` endpoint, add new `/api/v1/ask` endpoint.
+**Decision:** Extract router to `internal/http/router.go` with `NewRouter(deps *Deps) http.Handler`. Use **chi router** (`github.com/go-chi/chi/v5`) instead of standard library. Move CORS middleware to `internal/http/middleware.go`. Add `/api/v1/ask` endpoint for RAG queries.
 
 **Dependencies struct:**
 ```go
 type Deps struct {
-    ChatService service.ChatService  // for /api/chat
     RAGEngine   rag.Engine           // for /api/v1/ask
+    VaultRepo   storage.VaultStore   // for vault validation
+    IndexerPipeline *indexer.Pipeline // for /api/index
     IndexHTML   string                // embedded HTML content
 }
 ```
@@ -445,10 +443,10 @@ type Engine interface {
 
    * [x] Router extracted to `internal/http/router.go`:
      * ✅ Uses **chi router** (`github.com/go-chi/chi/v5`) instead of standard library
-     * ✅ Exposes `func NewRouter(deps *Deps) http.Handler` where `Deps` holds chat service, RAG engine (nil for now), and HTML content
+     * ✅ Exposes `func NewRouter(deps *Deps) http.Handler` where `Deps` holds RAG engine, vault repo, indexer pipeline, and HTML content
      * ✅ Includes chi middleware: Logger and Recoverer
      * ✅ CORS middleware moved to `internal/http/middleware.go`
-     * ✅ Routes: `POST /api/chat` and `GET /`
+     * ✅ Routes: `POST /api/v1/ask`, `POST /api/index`, and `GET /`
 
 3. **Main**
 
@@ -463,12 +461,7 @@ type Engine interface {
 
    * [x] HTML embedded via `//go:embed index.html` in `main.go`
    * [x] Route `GET /` serves HTML ✅
-   * [x] Basic chat UI with streaming ✅
-   * ⏭️ **Deferred to Phase 7:** Update HTML for RAG:
-     * Add vault selector (personal/work checkboxes).
-     * Change endpoint from `/api/chat` to `/api/v1/ask` (or add new endpoint).
-     * Add references display section.
-     * Update JS to send `AskRequest` format and render `AskResponse` with references.
+   * [x] RAG UI with vault selection and references display ✅ (completed in Phase 7)
 
 ---
 
@@ -830,7 +823,7 @@ At this point, your notes are indexed.
    * [x] Wire route `POST /api/v1/ask` in router.
      * ✅ Route registered in `internal/http/router.go` under `/api/v1/ask`.
 
-   **Note:** Can keep `/api/chat` for basic chat and add `/api/v1/ask` for RAG, or migrate chat to use RAG engine with empty vaults.
+   **Note:** The `/api/v1/ask` endpoint is the primary API for question-answering over indexed notes.
 
 3. **HTML / JS**
 
@@ -851,4 +844,4 @@ At this point, your notes are indexed.
        * ✅ Format: `vault / rel_path` with `heading_path` below.
        * ✅ References are clickable (hover effect).
 
-   **Note:** RAG responses are non-streaming per Section 0.16. Current streaming UI can be adapted or kept separate for `/api/chat`.
+   **Note:** RAG responses are non-streaming per Section 0.16.

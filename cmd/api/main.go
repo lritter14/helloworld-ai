@@ -13,7 +13,6 @@ import (
 	"helloworld-ai/internal/indexer"
 	"helloworld-ai/internal/llm"
 	"helloworld-ai/internal/rag"
-	"helloworld-ai/internal/service"
 	"helloworld-ai/internal/storage"
 	"helloworld-ai/internal/vault"
 	"helloworld-ai/internal/vectorstore"
@@ -110,9 +109,6 @@ func main() {
 	// Create LLM client (external service layer)
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModelName)
 
-	// Create chat service (business logic layer)
-	chatService := service.NewChatService(llmClient)
-
 	// Create RAG engine
 	ragEngine := rag.NewEngine(
 		embedder,
@@ -127,7 +123,6 @@ func main() {
 
 	// Create router with dependencies
 	deps := &http.Deps{
-		ChatService:     chatService,
 		RAGEngine:       ragEngine,
 		VaultRepo:       vaultRepo,
 		IndexerPipeline: indexerPipeline,

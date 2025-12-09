@@ -6,10 +6,10 @@ Router and middleware patterns.
 
 ```go
 type Deps struct {
-    ChatService service.ChatService
-    RAGEngine   rag.Engine
-    VaultRepo   storage.VaultStore
-    IndexHTML   string
+    RAGEngine      rag.Engine
+    VaultRepo      storage.VaultStore
+    IndexerPipeline *indexer.Pipeline
+    IndexHTML      string
 }
 
 func NewRouter(deps *Deps) http.Handler {
@@ -22,7 +22,7 @@ func NewRouter(deps *Deps) http.Handler {
     
     // Register routes
     r.Route("/api", func(r chi.Router) {
-        r.Method(http.MethodPost, "/chat", chatHandler)
+        r.Method(http.MethodPost, "/index", indexHandler)
         r.Route("/v1", func(r chi.Router) {
             r.Method(http.MethodPost, "/ask", askHandler)
         })
@@ -102,17 +102,10 @@ func CORS(next http.Handler) http.Handler {
 **Mock Usage:**
 
 ```go
-ctrl := gomock.NewController(t)
-defer ctrl.Finish()
-
-mockChatService := mocks.NewMockChatService(ctrl)
-mockRAGEngine := mocks.NewMockEngine(ctrl)
-mockVaultRepo := mocks.NewMockVaultStore(ctrl)
-
 deps := &Deps{
-    ChatService: mockChatService,
     RAGEngine:   mockRAGEngine,
     VaultRepo:   mockVaultRepo,
+    IndexerPipeline: mockIndexerPipeline,
     IndexHTML:   "<html></html>",
 }
 

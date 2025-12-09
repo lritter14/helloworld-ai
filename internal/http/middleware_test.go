@@ -46,7 +46,7 @@ func TestRequestLogger(t *testing.T) {
 		{
 			name:       "regular request",
 			method:     http.MethodPost,
-			path:       "/api/chat",
+			path:       "/api/v1/ask",
 			statusCode: http.StatusOK,
 			shouldLog:  true,
 		},

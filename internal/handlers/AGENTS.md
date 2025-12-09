@@ -12,22 +12,22 @@ HTTP request/response handling patterns for the ingress layer.
 ## Handler Pattern
 
 ```go
-type ChatHandler struct {
-    chatService service.ChatService
-    logger      *slog.Logger
-}
-
 type AskHandler struct {
     ragEngine rag.Engine
     vaultRepo storage.VaultStore
     logger    *slog.Logger
 }
 
-func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+type IndexHandler struct {
+    indexerPipeline *indexer.Pipeline
+    logger          *slog.Logger
+}
+
+func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     ctx := r.Context()
     logger := h.getLogger(ctx)
     
-    // Validate method, decode request, call service, encode response
+    // Validate method, decode request, call RAG engine, encode response
 }
 ```
 
@@ -36,23 +36,35 @@ func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 Define separate DTOs in handler package:
 
 ```go
-type ChatRequest struct {
-    Message string `json:"message"`
+type AskRequest struct {
+    Question string   `json:"question"`
+    Vaults   []string `json:"vaults,omitempty"`
+    Folders  []string `json:"folders,omitempty"`
+    K        int      `json:"k,omitempty"`
 }
 
-type ChatResponse struct {
-    Reply string `json:"reply"`
+type AskResponse struct {
+    Answer     string              `json:"answer"`
+    References []ReferenceResponse `json:"references"`
 }
 ```
 
 Convert at boundaries:
 
 ```go
-// HTTP → Service
-svcReq := service.ChatRequest{Message: req.Message}
+// HTTP → RAG
+ragReq := rag.AskRequest{
+    Question: req.Question,
+    Vaults:   req.Vaults,
+    Folders:  req.Folders,
+    K:        req.K,
+}
 
-// Service → HTTP
-resp := ChatResponse{Reply: svcResp.Reply}
+// RAG → HTTP
+resp := AskResponse{
+    Answer:     ragResp.Answer,
+    References: convertReferences(ragResp.References),
+}
 ```
 
 ## Error Mapping
@@ -70,19 +82,22 @@ if errors.Is(err, service.ErrExternalService) {
 }
 ```
 
-## Streaming (SSE)
+## Index Handler
+
+The `IndexHandler` handles re-indexing requests via `/api/index`:
 
 ```go
-w.Header().Set("Content-Type", "text/event-stream")
-w.Header().Set("Cache-Control", "no-cache")
-
-flusher, _ := w.(http.Flusher)
-err := h.chatService.StreamChat(ctx, svcReq, func(chunk string) error {
-    fmt.Fprintf(w, "data: %s\n\n", chunk)
-    flusher.Flush()
-    return nil
-})
+func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    // Check for force parameter (?force=true)
+    // Trigger indexing in goroutine (non-blocking)
+    // Return HTTP 202 Accepted immediately
+}
 ```
+
+**Behavior:**
+- Runs indexing asynchronously in a goroutine
+- Returns HTTP 202 Accepted immediately
+- Supports `?force=true` query parameter to clear existing data first
 
 ## Testing
 
@@ -98,16 +113,16 @@ The service interface has a `//go:generate` directive for mock generation (in se
 ctrl := gomock.NewController(t)
 defer ctrl.Finish()
 
-mockChatService := mocks.NewMockChatService(ctrl)
-mockChatService.EXPECT().ProcessChat(gomock.Any(), gomock.Any()).Return(service.ChatResponse{Reply: "test"}, nil)
+mockRAGEngine := mocks.NewMockEngine(ctrl)
+mockVaultRepo := mocks.NewMockVaultStore(ctrl)
 
-handler := NewChatHandler(mockChatService)
+handler := NewAskHandler(mockRAGEngine, mockVaultRepo)
 ```
 
 **HTTP Testing:**
 
 ```go
-req := httptest.NewRequest(http.MethodPost, "/api/chat", bytes.NewBuffer(body))
+req := httptest.NewRequest(http.MethodPost, "/api/v1/ask", bytes.NewBuffer(body))
 w := httptest.NewRecorder()
 
 handler.ServeHTTP(w, req)

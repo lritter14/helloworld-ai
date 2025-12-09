@@ -81,6 +81,7 @@ type Reference struct {
    - If no folders selected, search all folders per vault (no folder filter)
    - Combine and deduplicate results by PointID
    - Sort by weighted score (highest first)
+   - **Filter by score threshold:** Remove results below minimum similarity score (0.55)
    - Take top K results (default 5, max 20)
 
 5. **Fetch Chunk Texts:**
@@ -144,6 +145,8 @@ func (e *ragEngine) selectRelevantFolders(ctx context.Context, question string,
 
 2. **LLM Ranking:** Use LLM to rank remaining folders by relevance to question
    - Converts folders to vault name format for LLM (e.g., `"personal/workouts"`)
+   - Prompt explicitly instructs LLM to only include DIRECTLY relevant folders
+   - Prompt instructs LLM to exclude tangentially related folders
    - LLM returns JSON array of ranked folders
    - Handles markdown code blocks and JSON prefixes in LLM response
    - Falls back to all available folders if LLM fails
@@ -177,6 +180,14 @@ for _, vaultID := range vaultIDs {
 - Earlier folders in ordered list get higher weight (1.0, 0.9, 0.8, ...)
 - Minimum weight: 0.1
 - Applied to search result scores before deduplication
+
+**Score Threshold Filtering:**
+
+- After sorting by weighted score, filter out low-relevance results
+- Minimum similarity score threshold: 0.55
+- Results below threshold are excluded before taking top K
+- Logs filtered results at INFO level, individual filtered chunks at DEBUG level
+- Improves answer quality by excluding tangentially related chunks
 
 ## Error Handling
 
@@ -224,6 +235,7 @@ engine := NewEngine(mockEmbedder, mockVectorStore, "collection",
 - Handle multiple vaults by searching separately
 - Use intelligent folder selection (user folders + LLM ranking)
 - Apply folder position weighting to search scores
+- Filter results by score threshold (0.55 minimum) before taking top K
 - Format context per plan specification
 - Use exact system prompt from plan
 - Return references from search result metadata

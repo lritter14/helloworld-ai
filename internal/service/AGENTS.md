@@ -11,23 +11,7 @@ Business logic and domain patterns.
 
 ## Service Pattern
 
-```go
-type ChatService interface {
-    ProcessChat(ctx context.Context, req ChatRequest) (ChatResponse, error)
-}
-
-type chatService struct {
-    llmClient LLMClient
-    logger    *slog.Logger
-}
-
-func NewChatService(llmClient LLMClient) ChatService {
-    return &chatService{
-        llmClient: llmClient,
-        logger:    slog.Default(),
-    }
-}
-```
+The service layer primarily provides domain error definitions and validation patterns. Business logic for RAG queries is handled by the RAG engine (`internal/rag`), which uses the LLM client directly.
 
 ## Domain Errors
 
@@ -56,6 +40,8 @@ if req.Message == "" {
     }
 }
 ```
+
+**Note:** The service layer's validation patterns are used as examples. RAG validation is handled in the handlers layer (AskHandler).
 
 ## Consumer-First Interfaces
 
@@ -98,13 +84,14 @@ Interfaces have `//go:generate` directives for automatic mock generation:
 
 ```go
 //go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_llm_client.go -package=mocks helloworld-ai/internal/service LLMClient
-//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_chat_service.go -package=mocks -mock_names=ChatService=MockChatService helloworld-ai/internal/service ChatService
 
 type LLMClient interface {
     Chat(ctx context.Context, message string) (string, error)
     StreamChat(ctx context.Context, message string, callback func(chunk string) error) error
 }
 ```
+
+**Note:** The LLMClient interface is defined here for reference, but it's primarily used by the RAG engine. The service layer focuses on domain error definitions.
 
 ### Test Patterns
 
@@ -141,7 +128,7 @@ defer ctrl.Finish()
 mockLLMClient := mocks.NewMockLLMClient(ctrl)
 mockLLMClient.EXPECT().Chat(gomock.Any(), "test").Return("response", nil)
 
-svc := service.NewChatService(mockLLMClient)
+// Use mock in tests as needed
 ```
 
 ## Rules
