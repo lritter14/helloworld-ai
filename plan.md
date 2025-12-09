@@ -42,10 +42,10 @@ This plan outlines the implementation of a RAG (Retrieval-Augmented Generation) 
 - **Phase 6:** Indexing pipeline (`internal/indexer/pipeline.go`) - Orchestrates indexing workflow with hash-based change detection
 - **Phase 6:** Indexer integration in `main.go` - Runs IndexAll at startup
 
-❌ **Remaining:**
-- RAG engine (`internal/rag/engine.go`)
-- `/api/v1/ask` endpoint (RAG-powered Q&A)
-- UI updates for RAG (vault selection, references display)
+✅ **Completed:**
+- **Phase 7:** RAG engine (`internal/rag/engine.go`)
+- **Phase 7:** `/api/v1/ask` endpoint (RAG-powered Q&A)
+- **Phase 7:** UI updates for RAG (vault selection, references display)
 
 ### Implementation Phases
 
@@ -789,65 +789,65 @@ At this point, your notes are indexed.
 
 **Goal:** Ask questions about notes via UI and get answers with references.
 
-**Status:** ❌ Not started - Current `/api/chat` is basic LLM chat, not RAG.
+**Status:** ✅ **COMPLETE** - RAG engine, handler, route, and UI all implemented.
 
 1. **RAG engine**
 
-   * [ ] `internal/rag/engine.go`:
+   * [x] `internal/rag/engine.go`:
 
-     * `RAGEngine` struct with `embedder`, `vectorStore`, `collection`, `noteRepo`, `llm`, `vaultRepo`.
-     * `Ask(ctx, req AskRequest)`:
-
-       * Embed `req.Question` using `EmbeddingsClient`.
-       * Build filters:
-         * If `Vaults` empty/not provided → search all vaults (see Section 0.24).
-         * Convert `Vaults` names to IDs (via `vaultRepo`).
-         * Add folder filters if provided (prefix matching per Section 0.14).
-       * Default `K` to 5 if zero (see Section 0.9), max 20.
-       * `vectorStore.Search` with query vector and filters.
-       * Build context string per Section 0.11 format.
-       * Construct LLM messages:
-         * System prompt: use exact prompt from Section 0.10.
-         * User message: include question + formatted context.
-       * Call `llmClient.ChatWithMessages` (see Section 0.1) with messages and default params.
-       * Build `References` from search results metadata (extract from Qdrant point metadata).
-       * Return `AskResponse` (non-streaming per Section 0.16).
+     * ✅ `RAGEngine` struct with `embedder`, `vectorStore`, `collection`, `chunkRepo`, `vaultRepo`, `llmClient`.
+     * ✅ `Ask(ctx, req AskRequest)`:
+       * ✅ Embed `req.Question` using `EmbeddingsClient`.
+       * ✅ Build filters:
+         * ✅ If `Vaults` empty/not provided → search all vaults (see Section 0.24).
+         * ✅ Convert `Vaults` names to IDs (via `vaultRepo`).
+         * ✅ Add folder filters if provided (prefix matching per Section 0.14).
+       * ✅ Default `K` to 5 if zero (see Section 0.9), max 20.
+       * ✅ `vectorStore.Search` with query vector and filters (handles multiple vaults separately).
+       * ✅ Fetch chunk texts from database using `chunkRepo.GetByID`.
+       * ✅ Build context string per Section 0.11 format.
+       * ✅ Construct LLM messages:
+         * ✅ System prompt: use exact prompt from Section 0.10.
+         * ✅ User message: include question + formatted context.
+       * ✅ Call `llmClient.ChatWithMessages` (see Section 0.1) with messages and default params.
+       * ✅ Build `References` from search results metadata (extract from Qdrant point metadata).
+       * ✅ Return `AskResponse` (non-streaming per Section 0.16).
 
 2. **HTTP handler**
 
-   * [ ] `internal/handlers/ask.go`:
+   * [x] `internal/handlers/ask.go`:
+     * ✅ Similar structure to existing `chat.go` handler.
+     * ✅ Parse JSON `AskRequest`.
+     * ✅ Validate:
+       * ✅ Default `K` to 5 if zero (see Section 0.9).
+       * ✅ Validate vault names exist (if provided).
+       * ✅ Return HTTP 400 on validation errors (see Section 0.19).
+     * ✅ Call `ragEngine.Ask`.
+     * ✅ Return JSON `AskResponse` (non-streaming per Section 0.16).
+     * ✅ Handle errors per Section 0.19 (maps to HTTP 400, 500, 502, 503).
 
-     * Similar structure to existing `chat.go` handler.
-     * Parse JSON `AskRequest`.
-     * Validate:
-       * Default `K` to 5 if zero (see Section 0.9).
-       * Validate vault names exist (if provided).
-       * Return HTTP 400 on validation errors (see Section 0.19).
-     * Call `ragEngine.Ask`.
-     * Return JSON `AskResponse` (non-streaming per Section 0.16).
-     * Handle errors per Section 0.19.
-
-   * [ ] Wire route `POST /api/v1/ask` in router.
+   * [x] Wire route `POST /api/v1/ask` in router.
+     * ✅ Route registered in `internal/http/router.go` under `/api/v1/ask`.
 
    **Note:** Can keep `/api/chat` for basic chat and add `/api/v1/ask` for RAG, or migrate chat to use RAG engine with empty vaults.
 
 3. **HTML / JS**
 
-   * [ ] Update `cmd/api/index.html`:
-
-     * Add vault selector UI:
-       * Checkboxes for "personal" and "work" vaults.
-       * Optional folder filter input.
-     * Update `sendMessage()` function:
-       * Change endpoint to `/api/v1/ask` (or add toggle for chat vs RAG mode).
-       * Update request body to `AskRequest` format:
+   * [x] Update `cmd/api/index.html`:
+     * ✅ Add vault selector UI:
+       * ✅ Checkboxes for "personal" and "work" vaults (both checked by default).
+       * ✅ Optional folder filter input.
+       * ✅ K value input (default 5, min 1, max 20).
+     * ✅ Update `sendMessage()` function:
+       * ✅ Change endpoint to `/api/v1/ask`.
+       * ✅ Update request body to `AskRequest` format:
          ```json
          { "question": "...", "vaults": ["personal"], "k": 5 }
          ```
-       * Handle `AskResponse` format with `answer` and `references`.
-     * Add references display:
-       * Render `references` array as clickable list.
-       * Format: `vault/rel_path :: heading_path` (or similar).
-       * Consider linking to note files if possible.
+       * ✅ Handle `AskResponse` format with `answer` and `references`.
+     * ✅ Add references display:
+       * ✅ Render `references` array as styled list.
+       * ✅ Format: `vault / rel_path` with `heading_path` below.
+       * ✅ References are clickable (hover effect).
 
    **Note:** RAG responses are non-streaming per Section 0.16. Current streaming UI can be adapted or kept separate for `/api/chat`.

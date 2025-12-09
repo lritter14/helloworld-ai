@@ -272,4 +272,3 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		References: references,
 	}, nil
 }
-

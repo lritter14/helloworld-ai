@@ -31,4 +31,3 @@ type AskResponse struct {
 	// References are the chunks that were used to generate the answer.
 	References []Reference `json:"references"`
 }
-

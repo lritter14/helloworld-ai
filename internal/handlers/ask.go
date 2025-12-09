@@ -177,8 +177,8 @@ func (h *AskHandler) handleRAGError(w http.ResponseWriter, ctx context.Context, 
 	errMsg := strings.ToLower(err.Error())
 
 	// Vector store errors -> 503
-	if strings.Contains(errMsg, "vector store") || 
-		strings.Contains(errMsg, "vectorstore") || 
+	if strings.Contains(errMsg, "vector store") ||
+		strings.Contains(errMsg, "vectorstore") ||
 		strings.Contains(errMsg, "qdrant") ||
 		strings.Contains(errMsg, "failed to search") {
 		h.writeError(w, http.StatusServiceUnavailable, "Vector store unavailable")
@@ -186,7 +186,7 @@ func (h *AskHandler) handleRAGError(w http.ResponseWriter, ctx context.Context, 
 	}
 
 	// LLM/embedding errors -> 502
-	if strings.Contains(errMsg, "embed") || 
+	if strings.Contains(errMsg, "embed") ||
 		strings.Contains(errMsg, "llm") ||
 		strings.Contains(errMsg, "failed to get llm") {
 		h.writeError(w, http.StatusBadGateway, "External service error")
@@ -205,4 +205,3 @@ func (h *AskHandler) writeError(w http.ResponseWriter, statusCode int, message s
 		Error: message,
 	})
 }
-
