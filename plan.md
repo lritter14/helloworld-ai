@@ -565,24 +565,104 @@ type Engine interface {
 
 **Goal:** Working `VectorStore` backed by Qdrant.
 
-1. **Qdrant client**
+**Status:** ❌ Not started - Vector store interface and Qdrant implementation needed.
+
+1. **Vector store interface**
+
+   * [ ] `internal/vectorstore/interface.go`:
+
+     * Define `VectorStore` interface per Section 3.2:
+       * `Point` struct with `ID string`, `Vec []float32`, `Meta map[string]any`
+       * `SearchResult` struct with `PointID string`, `Score float32`, `Meta map[string]any`
+       * `VectorStore` interface with methods:
+         * `Upsert(ctx context.Context, collection string, points []Point) error`
+         * `Search(ctx context.Context, collection string, query []float32, k int, filters map[string]any) ([]SearchResult, error)`
+         * `Delete(ctx context.Context, collection string, ids []string) error`
+     * Place interface in consuming package (per Section 2.2 - consumer interface model).
+
+2. **Qdrant client implementation**
 
    * [ ] `internal/vectorstore/qdrant.go`:
 
-     * Use `github.com/qdrant/go-client` (see Section 0.3).
-     * Implement:
+     * Import `github.com/qdrant/go-client/qdrant` (see Section 0.3).
+     * `QdrantStore` struct:
+       * Holds `client *qdrant.Client` (private field).
+       * Constructor: `NewQdrantStore(url string) (*QdrantStore, error)`:
+         * Parse URL to extract host and port (default port 6334 for gRPC).
+         * Create client using `qdrant.NewClient(&qdrant.Config{Host: host, Port: port})`.
+         * Return error if client creation fails.
+     * Implement `Upsert(ctx, collection, points)`:
+       * Convert `[]Point` to `[]*qdrant.PointStruct`:
+         * Use `qdrant.NewIDStr(point.ID)` for string IDs (UUIDs).
+         * Use `qdrant.NewVectors(point.Vec...)` to convert `[]float32` to Qdrant vectors.
+         * Convert `point.Meta` to Qdrant payload using `qdrant.NewValueMap(point.Meta)`.
+       * Call `client.Upsert(ctx, &qdrant.UpsertPoints{CollectionName: collection, Points: ...})`.
+       * Return error if upsert fails.
+     * Implement `Search(ctx, collection, query, k, filters)`:
+       * Build Qdrant filter from `filters map[string]any`:
+         * If `vault_id` present, add `Must` condition with `qdrant.NewMatch("vault_id", vaultID)`.
+         * If `folder` present, use prefix matching (see Section 0.14):
+           * Use `qdrant.NewMatchText` or build filter with prefix condition.
+           * Note: Qdrant supports `match` with `text` for prefix matching.
+         * Combine multiple filters with `Must` array.
+       * Call `client.Search(ctx, &qdrant.SearchPoints{CollectionName: collection, Vector: query, Limit: uint64(k), Filter: ...})`.
+       * Convert results to `[]SearchResult`:
+         * Extract `PointID` from result ID (use `result.Id.GetStringValue()`).
+         * Extract `Score` from `result.Score`.
+         * Extract `Meta` from `result.Payload` (convert Qdrant value map to `map[string]any`).
+       * Return error if search fails.
+     * Implement `Delete(ctx, collection, ids)`:
+       * Convert `[]string` to `[]*qdrant.PointId`:
+         * Use `qdrant.NewIDStr(id)` for each ID.
+       * Call `client.Delete(ctx, &qdrant.DeletePoints{CollectionName: collection, Points: ids})`.
+       * Return error if delete fails.
+     * Error handling:
+       * Wrap Qdrant errors with context using `fmt.Errorf("...: %w", err)`.
+       * Log errors using structured logging (extract logger from context).
 
-       * `Upsert` → upsert points.
-       * `Search` → vector search with payload filters.
-       * `Delete` → delete by IDs.
+3. **Collection initialization**
 
-2. **Collection init**
+   * [ ] `internal/vectorstore/qdrant.go` - Add collection management:
 
-   * [ ] On startup, ensure `QDRANT_COLLECTION` exists (default: `"notes"`, see Section 0.12).
-   * [ ] Create collection if missing with:
-     * Vector size from `QDRANT_VECTOR_SIZE` config (see Section 0.13).
-     * Distance metric: `Cosine`.
-     * Validate embedding client returns vectors of matching size.
+     * `EnsureCollection(ctx context.Context, collection string, vectorSize int) error`:
+       * Check if collection exists using `client.GetCollectionInfo(ctx, &qdrant.GetCollectionInfo{CollectionName: collection})`.
+       * If collection doesn't exist (check for specific error or nil result):
+         * Create collection using `client.CreateCollection(ctx, &qdrant.CreateCollection{...})`:
+           * `CollectionName: collection`
+           * `VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{Size: uint64(vectorSize), Distance: qdrant.Distance_Cosine})`
+         * Return error if creation fails.
+       * If collection exists, validate vector size matches:
+         * Extract `vectorSize` from collection info.
+         * Compare with expected `vectorSize` parameter.
+         * Return error if mismatch (see Section 0.13).
+       * Return nil on success.
+     * Helper method: `CollectionExists(ctx context.Context, collection string) (bool, error)`:
+       * Call `GetCollectionInfo` and check for existence.
+       * Return `(true, nil)` if exists, `(false, nil)` if not found, error otherwise.
+
+4. **Integration**
+
+   * [ ] `cmd/api/main.go`:
+
+     * After config loading, create Qdrant client:
+       * `vectorStore, err := vectorstore.NewQdrantStore(cfg.QdrantURL)`
+       * Handle error (log and exit if Qdrant unavailable).
+     * Initialize collection:
+       * `err = vectorStore.EnsureCollection(ctx, cfg.QdrantCollection, cfg.QdrantVectorSize)`
+       * Handle error (log and exit if collection setup fails).
+     * Validate embedding client vector size:
+       * Create test embedding client: `embedder := llm.NewEmbeddingsClient(cfg.EmbeddingBaseURL, cfg.LLMAPIKey, cfg.EmbeddingModelName, cfg.QdrantVectorSize)`
+       * Call `embedder.EmbedTexts(ctx, []string{"test"})` to validate vector size matches.
+       * This ensures fail-fast behavior per Section 0.13.
+     * Store `vectorStore` for later use in Phase 6 (indexer) and Phase 7 (RAG engine).
+     * **Note:** Vector store will be wired into indexer and RAG engine in later phases.
+
+5. **Dependencies**
+
+   * [ ] Add Qdrant Go client to `go.mod`:
+
+     * Run `go get github.com/qdrant/go-client/qdrant`.
+     * Verify dependency added to `go.mod` and `go.sum`.
 
 ---
 

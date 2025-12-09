@@ -25,11 +25,41 @@ The application consists of a single binary:
 - Qdrant running (Docker)
 - (Optional) Tilt for unified development workflow
 
+## Configuration
+
+### Environment File (.env)
+
+The project uses a `.env` file for configuration when using Tilt. Create a `.env` file in the project root with the following variables:
+
+```bash
+# llama.cpp Server Configuration
+LLAMA_SERVER_PATH=../llama.cpp/build/bin/llama-server
+LLAMA_MODEL_PATH=../llama.cpp/models/llama-3-8b-instruct-q4_k_m.gguf
+LLAMA_PORT=8080
+
+# API Server Configuration
+API_PORT=9000
+
+# LLM Configuration
+LLM_BASE_URL=http://localhost:8080
+LLM_API_KEY=dummy-key
+LLM_MODEL=local-model
+
+# Qdrant Configuration
+QDRANT_VECTOR_SIZE=4096
+
+# Vault Configuration
+VAULT_PERSONAL_PATH=./vaults/personal
+VAULT_WORK_PATH=./vaults/work
+```
+
+A `.env` file with default values is included in the repository. Modify it according to your local setup.
+
 ## Quick Start
 
 ### Option 1: Using Tilt (Recommended for Development)
 
-Tilt manages all services and dependencies automatically:
+Tilt manages all services and dependencies automatically. It reads configuration from the `.env` file:
 
 ```bash
 tilt up
@@ -94,9 +124,9 @@ The API server serves:
 - Web UI at `http://localhost:9000/`
 - API endpoint at `http://localhost:9000/api/chat`
 
-## Configuration
-
 ### API Server Environment Variables
+
+When running the API server directly (not via Tilt), you can set these environment variables:
 
 **Required:**
 
@@ -115,6 +145,8 @@ The API server serves:
 - `QDRANT_URL` - Qdrant server URL (default: `http://localhost:6333`)
 - `QDRANT_COLLECTION` - Qdrant collection name (default: `notes`)
 - `API_PORT` - Port for API server (default: `9000`)
+
+**Note:** When using Tilt, configuration is read from the `.env` file instead of environment variables.
 
 ## Building
 
@@ -195,6 +227,7 @@ helloworld-ai/
 │   ├── handlers/     # HTTP handlers (ingress layer)
 │   ├── service/      # Business logic (service layer)
 │   ├── storage/      # Database operations (storage layer)
+│   ├── vectorstore/  # Vector database operations (Qdrant)
 │   └── llm/          # LLM and embeddings clients (external service layer)
 ├── index.html        # Web UI (embedded in binary)
 └── Makefile
@@ -204,7 +237,8 @@ helloworld-ai/
 
 - **Ingress Layer** (`internal/handlers`) - HTTP request/response handling
 - **Service Layer** (`internal/service`) - Business logic and domain models
-- **Storage Layer** (`internal/storage`) - Database operations and repositories
+- **Storage Layer** (`internal/storage`) - Database operations and repositories (SQLite)
+- **Vector Store Layer** (`internal/vectorstore`) - Vector database operations (Qdrant)
 - **External Service Layer** (`internal/llm`) - llama.cpp API clients (chat and embeddings)
 
 See `AGENTS.md` for detailed architecture guidelines and coding standards.

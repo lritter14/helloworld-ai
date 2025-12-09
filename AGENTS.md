@@ -39,7 +39,33 @@ Services follow a distinct layered architecture pattern that promotes separation
 - Implement proper error handling and logging
 - Use interfaces to abstract different storage backends
 
-### 1.2 Service Layer (`internal/service`)
+### 1.2 Vector Store Layer (`internal/vectorstore`)
+
+**Purpose:** Handle vector database operations for semantic search and similarity matching.
+
+**Responsibilities:**
+
+- Vector storage and retrieval (Qdrant)
+- Semantic similarity search with filters
+- Collection management and initialization
+- Metadata filtering for scoped searches
+
+**Guidelines:**
+
+- Use consumer-first interface design (interface defined in consuming package)
+- Implement proper error handling and logging
+- Validate vector sizes match collection configuration
+- Support metadata-based filtering (vault_id, folder prefix matching)
+- Single collection for all vaults (filter by metadata)
+
+**Key Features:**
+
+- `Upsert` - Batch insert/update vector points with metadata
+- `Search` - Semantic similarity search with optional filters
+- `Delete` - Remove points by IDs
+- `EnsureCollection` - Create collection if missing, validate vector size if exists
+
+### 1.3 Service Layer (`internal/service`)
 
 **Purpose:** Contain all business logic and orchestrate operations between layers.
 
@@ -57,7 +83,7 @@ Services follow a distinct layered architecture pattern that promotes separation
 - Use dependency injection for testability (using interfaces)
 - Maintain clear boundaries with other layers
 
-### 1.3 Ingress Layer (`internal/handlers`)
+### 1.4 Ingress Layer (`internal/handlers`)
 
 **Purpose:** Handle protocol-specific communication and translate between external APIs and internal service calls.
 
@@ -285,10 +311,15 @@ func WrapError(err error, msg string) error {
 ### 8.1 Configuration Guidelines
 
 - Use environment variables for configuration
+- When using Tilt, configuration is read from `.env` file (Tiltfile loads it automatically)
 - Validate required fields at startup
 - Provide sensible defaults for optional configuration
 - Handle type conversion with proper error handling
 - Create necessary directories (e.g., data directory)
+
+### 8.2 Tilt Configuration
+
+When developing with Tilt, configuration values are stored in `.env` file at the project root. The Tiltfile automatically loads these values using `load_dotenv()`. This allows for easy local customization without modifying the Tiltfile.
 
 ## 9. Dependency Management
 
@@ -365,6 +396,12 @@ func WrapError(err error, msg string) error {
 
 ### Environment Variables
 
+**For Tilt Development:**
+
+Configuration is managed via `.env` file in the project root. The Tiltfile reads these values automatically.
+
+**For Direct API Server Execution:**
+
 **Required:**
 
 - `VAULT_PERSONAL_PATH` - Path to personal vault directory
@@ -388,6 +425,7 @@ For detailed patterns specific to each layer, see:
 - **Handlers:** `internal/handlers/AGENTS.md` - HTTP handler patterns, DTOs, streaming
 - **Service:** `internal/service/AGENTS.md` - Business logic, domain errors, validation
 - **Storage:** `internal/storage/AGENTS.md` - Repository pattern, database operations
+- **Vector Store:** `internal/vectorstore/AGENTS.md` - Vector database operations, semantic search
 - **LLM:** `internal/llm/AGENTS.md` - External service client patterns (chat and embeddings)
 - **HTTP:** `internal/http/AGENTS.md` - Middleware, router setup
 - **Config:** `internal/config/AGENTS.md` - Configuration patterns

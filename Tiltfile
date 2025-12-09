@@ -1,19 +1,22 @@
 # Tiltfile for helloworld-ai
 # Manages: llama.cpp server and API server
 
-# Configuration
-llama_server_path = "../llama.cpp/build/bin/llama-server"
-llama_model_path = "../llama.cpp/models/llama-3-8b-instruct-q4_k_m.gguf"
-llama_port = 8080
-api_port = 9000
+# Load configuration from .env file
+load_dotenv()
+
+# Configuration (read from .env file with defaults)
+llama_server_path = os.getenv("LLAMA_SERVER_PATH", "../llama.cpp/build/bin/llama-server")
+llama_model_path = os.getenv("LLAMA_MODEL_PATH", "../llama.cpp/models/llama-3-8b-instruct-q4_k_m.gguf")
+llama_port = int(os.getenv("LLAMA_PORT", "8080"))
+api_port = int(os.getenv("API_PORT", "9000"))
 
 # Environment variables
-llm_base_url = "http://localhost:%d" % llama_port
-llm_api_key = "dummy-key"
-llm_model = "local-model"
-qdrant_vector_size = "4096"  # llama-3-8b-instruct embedding size
-vault_personal_path = "./vaults/personal"
-vault_work_path = "./vaults/work"
+llm_base_url = os.getenv("LLM_BASE_URL", "http://localhost:%d" % llama_port)
+llm_api_key = os.getenv("LLM_API_KEY", "dummy-key")
+llm_model = os.getenv("LLM_MODEL", "local-model")
+qdrant_vector_size = os.getenv("QDRANT_VECTOR_SIZE", "4096")  # llama-3-8b-instruct embedding size
+vault_personal_path = os.getenv("VAULT_PERSONAL_PATH", "./vaults/personal")
+vault_work_path = os.getenv("VAULT_WORK_PATH", "./vaults/work")
 
 # ============================================================================
 # Qdrant Vector Database (Infrastructure Dependency)
