@@ -37,10 +37,12 @@ This plan outlines the implementation of a RAG (Retrieval-Augmented Generation) 
 - **Phase 5:** Vault manager (`internal/vault/manager.go`) - Vault initialization, caching, path resolution
 - **Phase 5:** Vault scanner (`internal/vault/scanner.go`) - File system scanning for markdown files
 - **Phase 5:** Vault manager integration in `main.go`
+- **Phase 6:** Markdown chunker (`internal/indexer/chunker.go`) - Goldmark AST parsing, heading hierarchy chunking
+- **Phase 6:** Indexer types (`internal/indexer/types.go`) - Chunk struct definition
+- **Phase 6:** Indexing pipeline (`internal/indexer/pipeline.go`) - Orchestrates indexing workflow with hash-based change detection
+- **Phase 6:** Indexer integration in `main.go` - Runs IndexAll at startup
 
 ❌ **Remaining:**
-- Markdown chunker (`internal/indexer/chunker.go`)
-- Indexing pipeline (`internal/indexer/pipeline.go`)
 - RAG engine (`internal/rag/engine.go`)
 - `/api/v1/ask` endpoint (RAG-powered Q&A)
 - UI updates for RAG (vault selection, references display)
@@ -720,21 +722,25 @@ type Engine interface {
 
 **Goal:** Index both vaults into SQLite + Qdrant (one-time per start).
 
+**Status:** ✅ **COMPLETE** - Chunker and indexing pipeline implemented and integrated.
+
 1. **Chunker**
 
-   * [ ] `internal/indexer/chunker.go`:
+   * [x] `internal/indexer/chunker.go`:
 
      * Use `github.com/yuin/goldmark` with AST parsing (see Section 0.4).
      * Implement chunking strategy per Section 0.5:
        * Chunk by heading hierarchy
        * Min 50 chars, max 2000 chars per chunk
        * Heading path format: `"# Heading1 > ## Heading2"`
-     * Extract title per Section 0.7 (first # heading, or filename).
-     * Return title and list of `Chunk`.
+     * ✅ Extract title per Section 0.7 (first # heading, or filename).
+     * ✅ Return title and list of `Chunk`.
+     * ✅ Created `internal/indexer/types.go` with `Chunk` struct.
+     * ✅ Implemented `GoldmarkChunker` with AST parsing, heading hierarchy chunking, size constraints.
 
 2. **Indexer implementation**
 
-   * [ ] `internal/indexer/pipeline.go`:
+   * [x] `internal/indexer/pipeline.go`:
 
      * `Pipeline` struct holds:
 
@@ -764,11 +770,16 @@ type Engine interface {
 
        * `vaultManager.ScanAll`.
        * Loop and call `IndexNote` for each file.
-       * On error for a file, log and continue (see Section 0.19).
+       * ✅ On error for a file, log and continue (see Section 0.19).
+       * ✅ Implemented `Pipeline` struct with all dependencies.
+       * ✅ Implemented `IndexNote` with hash-based change detection, chunking, embedding, storage.
+       * ✅ Implemented `IndexAll` with error handling and summary logging.
 
 3. **Main wiring**
 
-   * [ ] In `main.go`, after constructing `Pipeline`, call `indexer.IndexAll(ctx)` once at startup.
+   * [x] In `main.go`, after constructing `Pipeline`, call `indexer.IndexAll(ctx)` once at startup.
+   * ✅ Wired indexer pipeline into `main.go` after Qdrant validation.
+   * ✅ Indexing runs at startup, logs errors but doesn't fail startup.
 
 At this point, your notes are indexed.
 

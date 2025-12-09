@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/yuin/goldmark v1.7.13 // indirect
 	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.32.0 // indirect

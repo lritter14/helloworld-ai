@@ -1,0 +1,195 @@
+# Indexer Layer - Agent Guide
+
+Markdown chunking and indexing pipeline patterns.
+
+## Core Responsibilities
+
+- Parse markdown files using goldmark AST
+- Chunk markdown by heading hierarchy
+- Extract document titles
+- Generate embeddings for chunks
+- Store chunks in SQLite (metadata) and Qdrant (vectors)
+- Hash-based change detection (skip unchanged files)
+
+## Architecture
+
+The indexer consists of two main components:
+
+1. **Chunker** (`chunker.go`) - Parses markdown and creates chunks
+2. **Pipeline** (`pipeline.go`) - Orchestrates indexing workflow
+
+## Chunker
+
+The `GoldmarkChunker` uses goldmark AST parsing to chunk markdown by heading hierarchy.
+
+### Chunking Strategy
+
+- **Heading-based:** Each chunk starts at a heading and includes content until the next heading of equal or higher level
+- **First chunk:** Uses document title as heading path if no headings exist
+- **Size constraints:**
+  - Minimum: 50 characters (merge tiny chunks with next)
+  - Maximum: 2000 characters (split if exceeded, prefer heading boundaries)
+- **Heading path format:** `"# Heading1 > ## Heading2 > ### Heading3"` (uses `>` separator)
+
+### Title Extraction
+
+Extracts title in this order:
+
+1. First `# Heading` (level 1)
+2. If none, first `## Heading` (level 2)
+3. If none, use filename without extension (capitalize words)
+
+### Usage
+
+```go
+chunker := indexer.NewGoldmarkChunker()
+title, chunks, err := chunker.ChunkMarkdown(content, filename)
+if err != nil {
+    return fmt.Errorf("failed to chunk: %w", err)
+}
+```
+
+### Chunk Structure
+
+```go
+type Chunk struct {
+    Index       int    // Chunk index within note (starts at 0)
+    HeadingPath string // Format: "# Heading1 > ## Heading2"
+    Text        string // Chunk text content
+}
+```
+
+## Pipeline
+
+The `Pipeline` orchestrates the indexing workflow for markdown files.
+
+### Initialization
+
+```go
+pipeline := indexer.NewPipeline(
+    vaultManager,
+    noteRepo,
+    chunkRepo,
+    embedder,
+    vectorStore,
+    collectionName,
+)
+```
+
+### Indexing a Single Note
+
+```go
+err := pipeline.IndexNote(ctx, vaultID, relPath)
+if err != nil {
+    return fmt.Errorf("failed to index note: %w", err)
+}
+```
+
+**IndexNote Workflow:**
+
+1. Get absolute path via `vaultManager.AbsPath(vaultID, relPath)`
+2. Read file content
+3. Compute SHA256 hash
+4. Check existing note - skip if hash matches (unchanged)
+5. Chunk content using `chunker.ChunkMarkdown()`
+6. Calculate folder from relPath
+7. Upsert note record (generate UUID if new)
+8. If existing note, delete old chunks (SQLite + Qdrant)
+9. Generate embeddings for all chunk texts
+10. Insert chunks into SQLite
+11. Upsert vectors to Qdrant with metadata
+
+### Indexing All Vaults
+
+```go
+err := pipeline.IndexAll(ctx)
+if err != nil {
+    log.Printf("Indexing completed with errors: %v", err)
+    // Don't fail startup - log and continue
+}
+```
+
+**IndexAll Workflow:**
+
+1. Scan all vaults via `vaultManager.ScanAll(ctx)`
+2. Loop through scanned files
+3. Call `IndexNote` for each file
+4. Log errors but continue (don't fail entire indexing)
+5. Log summary: total files, success count, error count
+
+### Hash-Based Change Detection
+
+The indexer uses SHA256 hashing to detect file changes:
+
+- Hash entire file content before chunking
+- Store hash as hex string (64 characters) in `notes.hash`
+- Skip re-indexing if hash matches existing note
+- Delete old chunks and re-index if hash differs
+
+### Metadata Storage
+
+Each chunk is stored with metadata in Qdrant:
+
+```go
+Meta: map[string]any{
+    "vault_id":    vaultID,      // int
+    "vault_name":  vaultName,     // string
+    "note_id":     noteID,        // string (UUID)
+    "rel_path":    relPath,       // string
+    "folder":      folder,        // string
+    "heading_path": chunk.HeadingPath, // string
+    "chunk_index": chunk.Index,   // int
+    "note_title":  title,         // string
+}
+```
+
+## Integration Points
+
+### Dependencies
+
+- **Vault Manager** - File discovery and path resolution
+- **Note Repository** - Note metadata storage
+- **Chunk Repository** - Chunk metadata storage
+- **Embeddings Client** - Vector generation
+- **Vector Store** - Vector storage (Qdrant)
+
+### Startup Integration
+
+The indexer runs at startup in `main.go`:
+
+```go
+// After Qdrant validation
+indexerPipeline := indexer.NewPipeline(...)
+log.Printf("Starting indexing of vaults...")
+if err := indexerPipeline.IndexAll(ctx); err != nil {
+    log.Printf("Indexing completed with errors: %v", err)
+    // Don't fail startup - log and continue
+} else {
+    log.Printf("Indexing completed successfully")
+}
+```
+
+## Error Handling
+
+- **File read errors:** Log and continue with next file
+- **Chunking errors:** Return error (fails indexing for that file)
+- **Embedding errors:** Return error (fails indexing for that file)
+- **Storage errors:** Return error (fails indexing for that file)
+- **IndexAll:** Logs errors but doesn't fail startup (per Section 0.19)
+
+## Rules
+
+- **Hash-based skipping:** Always check hash before re-indexing
+- **Batch operations:** Generate all embeddings in one call, batch upsert to Qdrant
+- **UUID generation:** Use `uuid.New()` for note IDs and chunk IDs
+- **Context support:** All operations accept `context.Context` for cancellation
+- **Error wrapping:** Wrap errors with context using `fmt.Errorf("...: %w", err)`
+- **Logging:** Extract logger from context, fallback to default logger
+
+## Chunking Edge Cases
+
+- **Empty files:** Return title from filename, empty chunks array
+- **No headings:** Use document title as heading path for first chunk
+- **Very long sections:** Split at paragraph boundaries, then sentence boundaries, then hard split
+- **Tiny chunks:** Merge with next chunk if below minimum size
+

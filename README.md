@@ -124,6 +124,18 @@ The API server serves:
 - Web UI at `http://localhost:9000/`
 - API endpoint at `http://localhost:9000/api/chat`
 
+### Indexing
+
+On startup, the API server automatically indexes all markdown files from both vaults:
+
+- Scans all `.md` files in personal and work vaults
+- Chunks files by heading hierarchy (min 50 chars, max 2000 chars per chunk)
+- Generates embeddings for each chunk
+- Stores metadata in SQLite and vectors in Qdrant
+- Uses hash-based change detection to skip unchanged files
+
+Indexing runs synchronously at startup. Errors for individual files are logged but don't prevent the server from starting. Check logs for indexing progress and any errors.
+
 ### API Server Environment Variables
 
 When running the API server directly (not via Tilt), you can set these environment variables:
@@ -230,6 +242,7 @@ helloworld-ai/
 │   ├── storage/      # Database operations (storage layer)
 │   ├── vectorstore/  # Vector database operations (Qdrant)
 │   ├── vault/        # Vault manager and file scanner
+│   ├── indexer/      # Markdown chunking and indexing pipeline
 │   └── llm/          # LLM and embeddings clients (external service layer)
 ├── index.html        # Web UI (embedded in binary)
 └── Makefile
@@ -243,6 +256,7 @@ helloworld-ai/
 - **Storage Layer** (`internal/storage`) - Database operations and repositories (SQLite)
 - **Vector Store Layer** (`internal/vectorstore`) - Vector database operations (Qdrant)
 - **Vault Layer** (`internal/vault`) - Vault management and file scanning
+- **Indexer Layer** (`internal/indexer`) - Markdown chunking and indexing pipeline
 - **External Service Layer** (`internal/llm`) - llama.cpp API clients (chat and embeddings)
 
 See `AGENTS.md` for detailed architecture guidelines and coding standards.

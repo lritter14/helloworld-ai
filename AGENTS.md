@@ -93,7 +93,38 @@ Services follow a distinct layered architecture pattern that promotes separation
 
 **See:** `internal/vault/AGENTS.md` for detailed patterns.
 
-### 1.4 Service Layer (`internal/service`)
+### 1.4 Indexer Layer (`internal/indexer`)
+
+**Purpose:** Parse markdown files, chunk them by heading hierarchy, and index them into SQLite and Qdrant.
+
+**Responsibilities:**
+
+- Markdown parsing using goldmark AST
+- Heading hierarchy-based chunking
+- Title extraction from markdown
+- Embedding generation for chunks
+- Hash-based change detection
+- Coordinated storage in SQLite (metadata) and Qdrant (vectors)
+
+**Guidelines:**
+
+- Use goldmark AST parsing for accurate heading detection
+- Chunk by heading boundaries with size constraints (min 50, max 2000 chars)
+- Extract title in order: H1 → H2 → filename
+- Use SHA256 hashing to skip unchanged files
+- Batch operations for efficiency (embeddings, Qdrant upserts)
+- Log errors but continue indexing (don't fail startup)
+
+**Key Features:**
+
+- `GoldmarkChunker` - Parses markdown and creates chunks by heading hierarchy
+- `Pipeline` - Orchestrates indexing workflow (scan, chunk, embed, store)
+- `IndexNote` - Indexes a single note file with hash-based change detection
+- `IndexAll` - Scans all vaults and indexes all markdown files
+
+**See:** `internal/indexer/AGENTS.md` for detailed patterns.
+
+### 1.5 Service Layer (`internal/service`)
 
 **Purpose:** Contain all business logic and orchestrate operations between layers.
 
@@ -111,7 +142,7 @@ Services follow a distinct layered architecture pattern that promotes separation
 - Use dependency injection for testability (using interfaces)
 - Maintain clear boundaries with other layers
 
-### 1.5 Ingress Layer (`internal/handlers`)
+### 1.6 Ingress Layer (`internal/handlers`)
 
 **Purpose:** Handle protocol-specific communication and translate between external APIs and internal service calls.
 

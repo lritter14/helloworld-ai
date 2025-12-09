@@ -8,6 +8,7 @@ import (
 
 	"helloworld-ai/internal/config"
 	"helloworld-ai/internal/http"
+	"helloworld-ai/internal/indexer"
 	"helloworld-ai/internal/llm"
 	"helloworld-ai/internal/service"
 	"helloworld-ai/internal/storage"
@@ -51,9 +52,6 @@ func main() {
 		log.Fatalf("Failed to initialize vault manager: %v", err)
 	}
 	log.Printf("Vault manager initialized (personal: %s, work: %s)", cfg.VaultPersonalPath, cfg.VaultWorkPath)
-	_ = vaultManager // Will be used in Phase 6 (indexer)
-	_ = noteRepo     // Will be used in Phase 6 (indexer)
-	_ = chunkRepo    // Will be used in Phase 6 (indexer)
 	vectorStore, err := vectorstore.NewQdrantStore(cfg.QdrantURL)
 	if err != nil {
 		log.Fatalf("Failed to create Qdrant client: %v", err)
@@ -75,8 +73,25 @@ func main() {
 		log.Fatalf("Embedding vector size mismatch: expected %d, got %d", cfg.QdrantVectorSize, len(testEmbeddings[0]))
 	}
 	log.Printf("Embedding client validated (vector size: %d)", cfg.QdrantVectorSize)
-	_ = vectorStore // Will be used in Phase 6 (indexer) and Phase 7 (RAG engine)
-	_ = embedder    // Will be used in Phase 6 (indexer) and Phase 7 (RAG engine)
+
+	// Create indexing pipeline
+	indexerPipeline := indexer.NewPipeline(
+		vaultManager,
+		noteRepo,
+		chunkRepo,
+		embedder,
+		vectorStore,
+		cfg.QdrantCollection,
+	)
+
+	// Index all vaults at startup
+	log.Printf("Starting indexing of vaults...")
+	if err := indexerPipeline.IndexAll(ctx); err != nil {
+		log.Printf("Indexing completed with errors: %v", err)
+		// Don't fail startup - log and continue per Section 0.19
+	} else {
+		log.Printf("Indexing completed successfully")
+	}
 
 	// Create LLM client (external service layer)
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModelName)
