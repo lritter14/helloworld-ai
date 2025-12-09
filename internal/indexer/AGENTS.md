@@ -95,7 +95,7 @@ if err != nil {
 6. Use folder passed as parameter (already calculated during scanning)
 7. Upsert note record (generate UUID if new)
 8. If existing note, delete old chunks (SQLite + Qdrant)
-9. Generate embeddings for all chunk texts
+9. Generate embeddings for chunk texts in batches (with automatic retry on errors)
 10. Insert chunks into SQLite
 11. Upsert vectors to Qdrant with metadata
 
@@ -143,6 +143,50 @@ Meta: map[string]any{
 }
 ```
 
+## Embedding Batch Processing
+
+The indexer generates embeddings in batches to avoid exceeding server limits:
+
+### Batch Limits
+
+```go
+const maxBatchCount = 5    // Max number of chunks per batch
+const maxBatchChars = 8000 // Max total characters per batch
+```
+
+### Batch Building
+
+- Respects both count and character limits
+- Warns if single chunk exceeds character limit (still processes it)
+- Builds batches sequentially until all chunks are processed
+
+### Automatic Retry with Batch Reduction
+
+The `embedTextsWithRetry` method automatically handles "input too large" errors:
+
+```go
+func (p *Pipeline) embedTextsWithRetry(ctx context.Context, texts []string, 
+    relPath string, logger *slog.Logger) ([][]float32, error)
+```
+
+**Behavior:**
+
+1. Attempts to embed the batch
+2. If error contains "input is too large" or "too large to process":
+   - Logs warning with batch size
+   - Recursively splits batch in half
+   - Retries each half separately
+   - Combines results
+3. If single chunk still fails, returns error
+4. If non-size error, returns error immediately
+
+**Error Detection:**
+
+Checks for various error message patterns (case-insensitive):
+- "input is too large"
+- "too large to process"
+- "increase the physical batch size"
+
 ## Integration Points
 
 ### Dependencies
@@ -150,7 +194,7 @@ Meta: map[string]any{
 - **Vault Manager** - File discovery and path resolution
 - **Note Repository** - Note metadata storage
 - **Chunk Repository** - Chunk metadata storage
-- **Embeddings Client** - Vector generation
+- **Embeddings Client** - Vector generation (with batch size handling)
 - **Vector Store** - Vector storage (Qdrant)
 
 ### Startup Integration
@@ -158,7 +202,14 @@ Meta: map[string]any{
 The indexer runs at startup in `main.go`:
 
 ```go
-// After Qdrant validation
+// Validate embedding client vector size (fail-fast)
+embedder := llm.NewEmbeddingsClient(...)
+testEmbeddings, err := embedder.EmbedTexts(ctx, []string{"test"})
+if len(testEmbeddings[0]) != cfg.QdrantVectorSize {
+    log.Fatalf("Embedding vector size mismatch: expected %d, got %d", ...)
+}
+
+// After validation
 indexerPipeline := indexer.NewPipeline(...)
 log.Printf("Starting indexing of vaults...")
 if err := indexerPipeline.IndexAll(ctx); err != nil {
@@ -169,13 +220,23 @@ if err := indexerPipeline.IndexAll(ctx); err != nil {
 }
 ```
 
+**Embedding Validation:**
+
+- Validates embedding vector size at startup (fail-fast if mismatch)
+- Ensures embeddings match Qdrant collection vector size
+- Prevents indexing with incorrect vector dimensions
+
 ## Error Handling
 
 - **File read errors:** Log and continue with next file
 - **Chunking errors:** Return error (fails indexing for that file)
-- **Embedding errors:** Return error (fails indexing for that file)
+- **Embedding errors:** Automatic batch size reduction and retry
+  - "Input too large" errors trigger automatic batch splitting
+  - Recursively splits batches in half until successful or single chunk fails
+  - Logs warnings when batches are split
 - **Storage errors:** Return error (fails indexing for that file)
 - **IndexAll:** Logs errors but doesn't fail startup (per Section 0.19)
+- **Startup validation:** Embedding vector size mismatch fails startup immediately
 
 ## Testing
 
@@ -246,13 +307,17 @@ logger := slog.New(slog.NewTextHandler(io.Discard, nil)) // Suppress logs in tes
 ## Rules
 
 - **Hash-based skipping:** Always check hash before re-indexing
-- **Batch operations:** Generate all embeddings in one call, batch upsert to Qdrant
+- **Batch operations:** Generate embeddings in batches respecting count and character limits
+- **Automatic retry:** Use `embedTextsWithRetry` for automatic batch size reduction on errors
+- **Batch limits:** Respect both `maxBatchCount` (5) and `maxBatchChars` (8000) limits
 - **UUID generation:** Use `uuid.New()` for note IDs and chunk IDs
 - **Context support:** All operations accept `context.Context` for cancellation
 - **Error wrapping:** Wrap errors with context using `fmt.Errorf("...: %w", err)`
 - **Logging:** Extract logger from context, fallback to default logger
+- **Log batch operations:** Log batch sizes and retry attempts for observability
 - **Test Isolation:** Use mocks for all dependencies
 - **Log Suppression:** Suppress log output during tests for cleaner test runs
+- **Startup validation:** Validate embedding vector size matches Qdrant collection (fail-fast)
 
 ## Chunking Edge Cases
 

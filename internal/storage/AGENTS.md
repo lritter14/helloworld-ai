@@ -15,12 +15,15 @@ Database operations and repository patterns.
 type NoteStore interface {
     GetByVaultAndPath(ctx context.Context, vaultID int, relPath string) (*NoteRecord, error)
     Upsert(ctx context.Context, note *NoteRecord) error
+    DeleteAll(ctx context.Context) error
+    ListUniqueFolders(ctx context.Context, vaultIDs []int) ([]string, error) // For RAG folder selection
 }
 
 type ChunkStore interface {
     Insert(ctx context.Context, chunk *ChunkRecord) error
     DeleteByNote(ctx context.Context, noteID string) error
     ListIDsByNote(ctx context.Context, noteID string) ([]string, error)
+    GetAllIDs(ctx context.Context) ([]string, error) // For clearing all data
     GetByID(ctx context.Context, id string) (*ChunkRecord, error) // For RAG queries
 }
 
@@ -135,6 +138,33 @@ func (r *ChunkRepo) GetByID(ctx context.Context, id string) (*ChunkRecord, error
 
 Used by RAG engine to fetch chunk text after vector search.
 
+## ListUniqueFolders Pattern
+
+For RAG folder selection, returns all unique folder paths optionally filtered by vault IDs:
+
+```go
+func (r *NoteRepo) ListUniqueFolders(ctx context.Context, vaultIDs []int) ([]string, error) {
+    // Query distinct vault_id, folder pairs
+    // Format as "<vaultID>/folder" (e.g., "1/projects/work")
+    // Include all nested parent folders (e.g., "1/projects" and "1/projects/work")
+    // Return unique list sorted by vault_id, folder
+}
+```
+
+**Key Features:**
+
+- Returns folders in format `"<vaultID>/folder"` for internal use
+- Includes all nested parent folders (e.g., if "projects/work" exists, also includes "projects")
+- If `vaultIDs` is empty, returns folders from all vaults
+- Used by RAG engine for intelligent folder selection
+
+**Example Output:**
+
+```go
+// For vault 1 with folders: "", "projects", "projects/work"
+// Returns: ["1/", "1/projects", "1/projects/work"]
+```
+
 ## Rules
 
 - NO business logic - Only persistence and queries
@@ -144,3 +174,4 @@ Used by RAG engine to fetch chunk text after vector search.
 - Handle all error returns (use `_` for intentional ignores in cleanup)
 - Use temporary directories for test isolation
 - `GetByID` returns full chunk record including text (for RAG)
+- `ListUniqueFolders` returns folders in format `"<vaultID>/folder"` including nested parents

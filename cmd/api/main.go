@@ -120,6 +120,7 @@ func main() {
 		cfg.QdrantCollection,
 		chunkRepo,
 		vaultRepo,
+		noteRepo,
 		llmClient,
 	)
 	log.Printf("RAG engine initialized")

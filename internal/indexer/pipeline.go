@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -59,6 +60,67 @@ func (p *Pipeline) getLogger(ctx context.Context) *slog.Logger {
 		}
 	}
 	return p.logger
+}
+
+// embedTextsWithRetry generates embeddings for texts, automatically reducing batch size
+// if the server returns an "input is too large" error.
+// This function recursively splits batches in half when encountering size limit errors.
+func (p *Pipeline) embedTextsWithRetry(ctx context.Context, texts []string, relPath string, logger *slog.Logger) ([][]float32, error) {
+	if len(texts) == 0 {
+		return nil, fmt.Errorf("empty input array")
+	}
+
+	// Try to embed the batch
+	embeddings, err := p.embedder.EmbedTexts(ctx, texts)
+	if err == nil {
+		return embeddings, nil
+	}
+
+	// Check if this is an "input too large" error
+	errStr := err.Error()
+	isTooLarge := false
+	if errStr != "" {
+		// Check for various forms of "input too large" error messages (case-insensitive)
+		errStrLower := strings.ToLower(errStr)
+		isTooLarge = strings.Contains(errStrLower, "input is too large") ||
+			strings.Contains(errStrLower, "too large to process") ||
+			strings.Contains(errStrLower, "increase the physical batch size")
+	}
+
+	// If not a size error, or we're down to a single chunk, return the error
+	if !isTooLarge || len(texts) == 1 {
+		return nil, err
+	}
+
+	// Log that we're reducing batch size
+	logger.WarnContext(ctx, "batch too large, splitting in half and retrying",
+		"rel_path", relPath,
+		"batch_size", len(texts),
+		"error", errStr,
+	)
+
+	// Split batch in half and retry each half
+	mid := len(texts) / 2
+	firstHalf := texts[:mid]
+	secondHalf := texts[mid:]
+
+	// Recursively embed each half
+	firstEmbeddings, err := p.embedTextsWithRetry(ctx, firstHalf, relPath, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to embed first half: %w", err)
+	}
+
+	secondEmbeddings, err := p.embedTextsWithRetry(ctx, secondHalf, relPath, logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to embed second half: %w", err)
+	}
+
+	// Combine results
+	result := make([][]float32, 0, len(firstEmbeddings)+len(secondEmbeddings))
+	result = append(result, firstEmbeddings...)
+	result = append(result, secondEmbeddings...)
+
+	return result, nil
 }
 
 // IndexNote indexes a single note file.
@@ -220,7 +282,8 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath, folder s
 			break
 		}
 
-		batchEmbeddings, err := p.embedder.EmbedTexts(ctx, batch)
+		// Generate embeddings with automatic batch size reduction on "input too large" errors
+		batchEmbeddings, err := p.embedTextsWithRetry(ctx, batch, relPath, logger)
 		if err != nil {
 			return fmt.Errorf("failed to generate embeddings for batch %d-%d: %w", startIdx, i-1, err)
 		}

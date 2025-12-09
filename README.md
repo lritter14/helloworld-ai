@@ -123,7 +123,7 @@ The API server serves:
 
 - Web UI at `http://localhost:9000/`
 - Chat API endpoint at `http://localhost:9000/api/chat` (basic LLM chat)
-- RAG API endpoint at `http://localhost:9000/api/v1/ask` (question-answering over indexed notes)
+- RAG API endpoint at `http://localhost:9000/api/v1/ask` (question-answering over indexed notes with intelligent folder selection)
 
 ### Indexing
 
@@ -131,11 +131,12 @@ On startup, the API server automatically indexes all markdown files from both va
 
 - Scans all `.md` files in personal and work vaults
 - Chunks files by heading hierarchy (min 50 chars, max 2000 chars per chunk)
-- Generates embeddings for each chunk
+- Generates embeddings for each chunk with automatic batch size reduction on errors
 - Stores metadata in SQLite and vectors in Qdrant
 - Uses hash-based change detection to skip unchanged files
+- Validates embedding vector size at startup (fail-fast if mismatch)
 
-Indexing runs synchronously at startup. Errors for individual files are logged but don't prevent the server from starting. Check logs for indexing progress and any errors.
+Indexing runs synchronously at startup. Errors for individual files are logged but don't prevent the server from starting. The indexer automatically handles embedding batch size errors by splitting batches in half and retrying. Check logs for indexing progress and any errors.
 
 ### API Server Environment Variables
 

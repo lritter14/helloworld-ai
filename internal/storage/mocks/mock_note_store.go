@@ -70,6 +70,21 @@ func (mr *MockNoteStoreMockRecorder) GetByVaultAndPath(ctx, vaultID, relPath any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByVaultAndPath", reflect.TypeOf((*MockNoteStore)(nil).GetByVaultAndPath), ctx, vaultID, relPath)
 }
 
+// ListUniqueFolders mocks base method.
+func (m *MockNoteStore) ListUniqueFolders(ctx context.Context, vaultIDs []int) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUniqueFolders", ctx, vaultIDs)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUniqueFolders indicates an expected call of ListUniqueFolders.
+func (mr *MockNoteStoreMockRecorder) ListUniqueFolders(ctx, vaultIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUniqueFolders", reflect.TypeOf((*MockNoteStore)(nil).ListUniqueFolders), ctx, vaultIDs)
+}
+
 // Upsert mocks base method.
 func (m *MockNoteStore) Upsert(ctx context.Context, note *storage.NoteRecord) error {
 	m.ctrl.T.Helper()

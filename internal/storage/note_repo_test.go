@@ -2,6 +2,8 @@ package storage
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -328,5 +330,132 @@ func TestNoteRecord_UpdatedAt(t *testing.T) {
 	// Check that UpdatedAt is recent (within last minute)
 	if time.Since(retrieved.UpdatedAt) > time.Minute {
 		t.Error("UpdatedAt should be recent")
+	}
+}
+
+func TestNoteRepo_ListUniqueFolders(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := tmpDir + "/test.db"
+
+	db, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	if err := Migrate(db); err != nil {
+		t.Fatalf("Migrate() error = %v", err)
+	}
+
+	vaultRepo := NewVaultRepo(db)
+	vault1, err := vaultRepo.GetOrCreateByName(context.Background(), "vault1", "/tmp/vault1")
+	if err != nil {
+		t.Fatalf("GetOrCreateByName() error = %v", err)
+	}
+	vault2, err := vaultRepo.GetOrCreateByName(context.Background(), "vault2", "/tmp/vault2")
+	if err != nil {
+		t.Fatalf("GetOrCreateByName() error = %v", err)
+	}
+
+	repo := NewNoteRepo(db)
+
+	// Insert test notes with various folder structures
+	notes := []*NoteRecord{
+		{VaultID: vault1.ID, RelPath: "root1.md", Folder: "", Title: "Root 1", Hash: "hash1"},
+		{VaultID: vault1.ID, RelPath: "projects/proj1.md", Folder: "projects", Title: "Proj 1", Hash: "hash2"},
+		{VaultID: vault1.ID, RelPath: "projects/work/task1.md", Folder: "projects/work", Title: "Task 1", Hash: "hash3"},
+		{VaultID: vault1.ID, RelPath: "docs/readme.md", Folder: "docs", Title: "Readme", Hash: "hash4"},
+		{VaultID: vault2.ID, RelPath: "root2.md", Folder: "", Title: "Root 2", Hash: "hash5"},
+		{VaultID: vault2.ID, RelPath: "notes/note1.md", Folder: "notes", Title: "Note 1", Hash: "hash6"},
+	}
+
+	for _, note := range notes {
+		if err := repo.Upsert(context.Background(), note); err != nil {
+			t.Fatalf("Upsert() error = %v", err)
+		}
+	}
+
+	tests := []struct {
+		name      string
+		vaultIDs  []int
+		wantCount int
+		check     func([]string) bool
+	}{
+		{
+			name:      "all vaults",
+			vaultIDs:  []int{},
+			wantCount: 6, // vault1: "", "projects", "projects/work", "docs"; vault2: "", "notes"
+			check: func(folders []string) bool {
+				// Check that we have folders from both vaults
+				hasVault1 := false
+				hasVault2 := false
+				for _, folder := range folders {
+					if strings.HasPrefix(folder, fmt.Sprintf("%d/", vault1.ID)) {
+						hasVault1 = true
+					}
+					if strings.HasPrefix(folder, fmt.Sprintf("%d/", vault2.ID)) {
+						hasVault2 = true
+					}
+				}
+				return hasVault1 && hasVault2
+			},
+		},
+		{
+			name:      "vault1 only",
+			vaultIDs:  []int{vault1.ID},
+			wantCount: 4, // "", "projects", "projects/work", "docs"
+			check: func(folders []string) bool {
+				// All folders should be from vault1
+				for _, folder := range folders {
+					if !strings.HasPrefix(folder, fmt.Sprintf("%d/", vault1.ID)) {
+						return false
+					}
+				}
+				return true
+			},
+		},
+		{
+			name:      "vault2 only",
+			vaultIDs:  []int{vault2.ID},
+			wantCount: 2, // "", "notes"
+			check: func(folders []string) bool {
+				// All folders should be from vault2
+				for _, folder := range folders {
+					if !strings.HasPrefix(folder, fmt.Sprintf("%d/", vault2.ID)) {
+						return false
+					}
+				}
+				return true
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			folders, err := repo.ListUniqueFolders(context.Background(), tt.vaultIDs)
+			if err != nil {
+				t.Errorf("ListUniqueFolders() error = %v", err)
+				return
+			}
+
+			if len(folders) != tt.wantCount {
+				t.Errorf("ListUniqueFolders() count = %d, want %d", len(folders), tt.wantCount)
+				t.Logf("Folders: %v", folders)
+			}
+
+			if tt.check != nil && !tt.check(folders) {
+				t.Error("ListUniqueFolders() result validation failed")
+			}
+
+			// Verify format: "<vaultID>/folder"
+			for _, folder := range folders {
+				parts := strings.SplitN(folder, "/", 2)
+				if len(parts) != 2 {
+					t.Errorf("ListUniqueFolders() invalid format: %s (expected '<vaultID>/folder')", folder)
+				}
+			}
+		})
 	}
 }

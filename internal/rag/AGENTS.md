@@ -23,6 +23,7 @@ type ragEngine struct {
     collection  string
     chunkRepo   storage.ChunkStore
     vaultRepo   storage.VaultStore
+    noteRepo    storage.NoteStore  // For ListUniqueFolders
     llmClient   *llm.Client
     logger      *slog.Logger
 }
@@ -56,29 +57,41 @@ type Reference struct {
 ## RAG Workflow
 
 1. **Embed Question:**
+
    ```go
    embeddings, err := e.embedder.EmbedTexts(ctx, []string{req.Question})
    queryVector := embeddings[0]
    ```
 
-2. **Build Filters:**
+2. **Resolve Vaults:**
    - Resolve vault names to IDs (if provided)
-   - Add folder filters (prefix matching)
-   - Default K to 5, enforce max 20
+   - If no vaults specified, use all vaults
+   - Build vault name to ID map for folder conversion
 
-3. **Search Vector Store:**
-   - Handle multiple vaults by searching each separately
-   - Combine and deduplicate results
-   - Sort by score (highest first)
-   - Take top K results
+3. **Select Relevant Folders:**
+   - Get available folders via `noteRepo.ListUniqueFolders(ctx, vaultIDs)`
+   - User-provided folders are prioritized (exact or prefix matching)
+   - Use LLM to rank remaining folders by relevance to question
+   - Returns ordered list: user folders first, then LLM-ranked folders
+   - If no folders selected, search all folders (no folder filter)
 
-4. **Fetch Chunk Texts:**
+4. **Search Vector Store:**
+   - Search each folder separately (with folder filter)
+   - Apply folder position weighting (earlier folders = higher weight)
+   - If no folders selected, search all folders per vault (no folder filter)
+   - Combine and deduplicate results by PointID
+   - Sort by weighted score (highest first)
+   - Take top K results (default 5, max 20)
+
+5. **Fetch Chunk Texts:**
+
    ```go
    chunk, err := e.chunkRepo.GetByID(ctx, result.PointID)
    ```
 
-5. **Format Context:**
-   ```
+6. **Format Context:**
+
+   ```text
    --- Context from notes ---
    
    [Vault: personal] File: projects/meeting-notes.md
@@ -88,7 +101,8 @@ type Reference struct {
    --- End Context ---
    ```
 
-6. **Call LLM:**
+7. **Call LLM:**
+
    ```go
    messages := []llm.Message{
        {Role: "system", Content: systemPrompt},
@@ -97,7 +111,7 @@ type Reference struct {
    answer, err := e.llmClient.ChatWithMessages(ctx, messages, params)
    ```
 
-7. **Build References:**
+8. **Build References:**
    Extract metadata from search results to build reference list
 
 ## System Prompt
@@ -110,6 +124,38 @@ Answer the question using only the information from the context below. If the co
 enough information to answer the question, say so. Cite specific sections when possible.
 ```
 
+## Folder Selection Pattern
+
+The RAG engine uses intelligent folder selection to improve search relevance:
+
+### selectRelevantFolders Method
+
+```go
+func (e *ragEngine) selectRelevantFolders(ctx context.Context, question string, 
+    availableFolders []string, userFolders []string, vaultIDs []int, 
+    vaultMap map[int]string) []string
+```
+
+**Workflow:**
+
+1. **User Folders First:** Match user-provided folders to available folders (exact or prefix matching)
+   - Supports formats: `"folder"`, `"<vaultID>/folder"`, `"<vaultName>/folder"`
+   - Prefix matching: `"projects"` matches `"projects/work"`
+
+2. **LLM Ranking:** Use LLM to rank remaining folders by relevance to question
+   - Converts folders to vault name format for LLM (e.g., `"personal/workouts"`)
+   - LLM returns JSON array of ranked folders
+   - Handles markdown code blocks and JSON prefixes in LLM response
+   - Falls back to all available folders if LLM fails
+
+3. **Return Ordered List:** User folders first, then LLM-ranked folders
+
+**Folder Format Conversion:**
+
+- Internal format: `"<vaultID>/folder"` (e.g., `"1/projects/work"`)
+- LLM format: `"<vaultName>/folder"` (e.g., `"personal/projects/work"`)
+- Conversion handled automatically via vault ID to name map
+
 ## Multiple Vault Handling
 
 When multiple vaults are requested, search each vault separately and combine results:
@@ -118,11 +164,19 @@ When multiple vaults are requested, search each vault separately and combine res
 var allSearchResults []vectorstore.SearchResult
 for _, vaultID := range vaultIDs {
     filters := map[string]any{"vault_id": vaultID}
+    // If folders selected, search each folder separately with weighting
+    // If no folders, search all folders (no folder filter)
     results, _ := e.vectorStore.Search(ctx, collection, queryVector, k, filters)
     allSearchResults = append(allSearchResults, results...)
 }
-// Deduplicate and sort by score
+// Deduplicate by PointID and sort by weighted score
 ```
+
+**Folder Weighting:**
+
+- Earlier folders in ordered list get higher weight (1.0, 0.9, 0.8, ...)
+- Minimum weight: 0.1
+- Applied to search result scores before deduplication
 
 ## Error Handling
 
@@ -168,8 +222,10 @@ engine := NewEngine(mockEmbedder, mockVectorStore, "collection",
 - NO HTTP types - Domain models only
 - Extract logger from context
 - Handle multiple vaults by searching separately
+- Use intelligent folder selection (user folders + LLM ranking)
+- Apply folder position weighting to search scores
 - Format context per plan specification
 - Use exact system prompt from plan
 - Return references from search result metadata
 - Handle all error returns properly
-
+- Use `noteRepo.ListUniqueFolders()` to get available folders for selection

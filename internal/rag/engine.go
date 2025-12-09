@@ -2,6 +2,7 @@ package rag
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -24,6 +25,7 @@ type ragEngine struct {
 	collection  string
 	chunkRepo   storage.ChunkStore
 	vaultRepo   storage.VaultStore
+	noteRepo    storage.NoteStore
 	llmClient   *llm.Client
 	logger      *slog.Logger
 }
@@ -35,6 +37,7 @@ func NewEngine(
 	collection string,
 	chunkRepo storage.ChunkStore,
 	vaultRepo storage.VaultStore,
+	noteRepo storage.NoteStore,
 	llmClient *llm.Client,
 ) Engine {
 	return &ragEngine{
@@ -43,6 +46,7 @@ func NewEngine(
 		collection:  collection,
 		chunkRepo:   chunkRepo,
 		vaultRepo:   vaultRepo,
+		noteRepo:    noteRepo,
 		llmClient:   llmClient,
 		logger:      slog.Default(),
 	}
@@ -58,6 +62,258 @@ func (e *ragEngine) getLogger(ctx context.Context) *slog.Logger {
 		}
 	}
 	return e.logger
+}
+
+// truncateString truncates a string to a maximum length, appending "..." if truncated.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
+
+// selectRelevantFolders uses LLM to rank folders by relevance to the question.
+// Returns ordered list: user-provided folders first, then LLM-ranked folders.
+// availableFolders format is "<vaultID>/folder" (e.g., "1/projects/work").
+// userFolders format can be "<vaultID>/folder" or just "folder" (prefix matching).
+// Returns folders in format "<vaultName>/folder" (e.g., "personal/workouts").
+func (e *ragEngine) selectRelevantFolders(ctx context.Context, question string, availableFolders []string, userFolders []string, vaultIDs []int, vaultMap map[int]string) []string {
+	logger := e.getLogger(ctx)
+
+	// Start with user-provided folders (they are already prioritized)
+	orderedFolders := make([]string, 0, len(userFolders))
+	seenFolders := make(map[string]bool)
+
+	// Add user folders first - match them to available folders
+	for _, userFolder := range userFolders {
+		// User folder might be in format "folder", "<vaultID>/folder", or "<vaultName>/folder"
+		// Match against available folders which are in format "<vaultID>/folder"
+		for _, availFolder := range availableFolders {
+			// Extract folder part from available folder (after vaultID/)
+			parts := strings.SplitN(availFolder, "/", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			availFolderPath := parts[1] // folder path without vaultID
+
+			// Convert available folder to vault name format for comparison
+			var vaultID int
+			if _, err := fmt.Sscanf(parts[0], "%d", &vaultID); err == nil {
+				if vaultName, ok := vaultMap[vaultID]; ok {
+					availFolderWithName := fmt.Sprintf("%s/%s", vaultName, availFolderPath)
+
+					// Check if user folder matches (exact or prefix)
+					if userFolder == availFolder || // Exact match with vaultID
+						userFolder == availFolderWithName || // Exact match with vaultName
+						availFolderPath == userFolder || // Exact match without vault prefix
+						strings.HasPrefix(availFolderPath, userFolder+"/") || // Prefix match
+						strings.HasPrefix(userFolder, availFolderPath+"/") { // User folder is more specific
+						if !seenFolders[availFolder] {
+							orderedFolders = append(orderedFolders, availFolder)
+							seenFolders[availFolder] = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// If no available folders, return empty list
+	if len(availableFolders) == 0 {
+		logger.WarnContext(ctx, "no available folders for selection")
+		return orderedFolders
+	}
+
+	// Filter out user folders from available list for LLM ranking
+	foldersForLLM := make([]string, 0)
+	for _, folder := range availableFolders {
+		if !seenFolders[folder] {
+			foldersForLLM = append(foldersForLLM, folder)
+		}
+	}
+
+	// If no folders left for LLM, return user folders only
+	if len(foldersForLLM) == 0 {
+		logger.InfoContext(ctx, "all folders already selected by user", "folder_count", len(orderedFolders))
+		return orderedFolders
+	}
+
+	// Convert folders to use vault names instead of IDs for LLM
+	foldersWithVaultNames := make([]string, 0, len(foldersForLLM))
+	vaultIDToNameMap := make(map[string]string) // Maps "vaultID/folder" -> "vaultName/folder"
+	for _, folder := range foldersForLLM {
+		parts := strings.SplitN(folder, "/", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		var vaultID int
+		if _, err := fmt.Sscanf(parts[0], "%d", &vaultID); err != nil {
+			continue
+		}
+		vaultName, ok := vaultMap[vaultID]
+		if !ok {
+			continue
+		}
+		folderWithName := fmt.Sprintf("%s/%s", vaultName, parts[1])
+		foldersWithVaultNames = append(foldersWithVaultNames, folderWithName)
+		vaultIDToNameMap[folder] = folderWithName
+	}
+
+	// Build LLM prompt with improved instructions for cleaner JSON output
+	folderList := strings.Join(foldersWithVaultNames, ", ")
+	prompt := fmt.Sprintf(`You are a folder ranking assistant. Your task is to rank folders by relevance to answer a user's question.
+
+Question: %s
+Available folders: %s
+
+Instructions:
+- Return ONLY a valid JSON array, nothing else
+- No explanations, no reasoning, no markdown formatting
+- Use this exact format: ["vaultname/folder1", "vaultname/folder2", ...]
+- Order folders from most relevant to least relevant
+- Only include folders from the available list above
+
+Your response (JSON array only):`, question, folderList)
+
+	logger.InfoContext(ctx, "selecting relevant folders with LLM",
+		"question_length", len(question),
+		"available_folders", len(foldersForLLM),
+		"user_folders", len(userFolders),
+	)
+
+	// Call LLM
+	messages := []llm.Message{
+		{Role: "user", Content: prompt},
+	}
+
+	llmResponse, err := e.llmClient.ChatWithMessages(ctx, messages, llm.ChatParams{
+		Model:       "",  // Use default from client
+		MaxTokens:   500, // Limit response size
+		Temperature: 0.3, // Lower temperature for more consistent ranking
+	})
+
+	if err != nil {
+		logger.WarnContext(ctx, "failed to get LLM response for folder selection, using all available folders", "error", err)
+		// Fallback: add all remaining folders in original order
+		orderedFolders = append(orderedFolders, foldersForLLM...)
+		return orderedFolders
+	}
+
+	// Parse JSON response
+	var llmRankedFolders []string
+	// Try to extract JSON array from response (might have extra text)
+	llmResponse = strings.TrimSpace(llmResponse)
+
+	// First, try to find JSON array pattern in the response
+	// Look for pattern: [ ... ] where ... contains quoted strings
+	jsonStart := strings.Index(llmResponse, "[")
+	jsonEnd := strings.LastIndex(llmResponse, "]")
+
+	if jsonStart >= 0 && jsonEnd > jsonStart {
+		// Extract the JSON array portion
+		jsonCandidate := llmResponse[jsonStart : jsonEnd+1]
+		// Try parsing this extracted portion
+		if err := json.Unmarshal([]byte(jsonCandidate), &llmRankedFolders); err == nil {
+			// Successfully parsed the extracted JSON
+			logger.DebugContext(ctx, "extracted JSON array from LLM response",
+				"extracted_json", jsonCandidate,
+				"parsed_folders", llmRankedFolders,
+			)
+		} else {
+			// Try removing markdown code blocks if present
+			cleanedResponse := llmResponse
+			if strings.HasPrefix(cleanedResponse, "```") {
+				lines := strings.Split(cleanedResponse, "\n")
+				if len(lines) > 1 {
+					cleanedResponse = strings.Join(lines[1:len(lines)-1], "\n")
+				}
+				cleanedResponse = strings.TrimSpace(cleanedResponse)
+			}
+			// Remove json prefix if present
+			if strings.HasPrefix(cleanedResponse, "json") {
+				cleanedResponse = strings.TrimPrefix(cleanedResponse, "json")
+				cleanedResponse = strings.TrimSpace(cleanedResponse)
+			}
+			// Try parsing the cleaned response
+			if err := json.Unmarshal([]byte(cleanedResponse), &llmRankedFolders); err != nil {
+				logger.WarnContext(ctx, "failed to parse LLM response as JSON, using all available folders", "error", err, "response_preview", truncateString(llmResponse, 200))
+				// Fallback: add all remaining folders in original order
+				orderedFolders = append(orderedFolders, foldersForLLM...)
+				return orderedFolders
+			}
+		}
+	} else {
+		// No JSON array pattern found, try parsing the whole response after cleaning
+		cleanedResponse := llmResponse
+		// Remove markdown code blocks if present
+		if strings.HasPrefix(cleanedResponse, "```") {
+			lines := strings.Split(cleanedResponse, "\n")
+			if len(lines) > 1 {
+				cleanedResponse = strings.Join(lines[1:len(lines)-1], "\n")
+			}
+			cleanedResponse = strings.TrimSpace(cleanedResponse)
+		}
+		// Remove json prefix if present
+		if strings.HasPrefix(cleanedResponse, "json") {
+			cleanedResponse = strings.TrimPrefix(cleanedResponse, "json")
+			cleanedResponse = strings.TrimSpace(cleanedResponse)
+		}
+		// Try parsing the cleaned response
+		if err := json.Unmarshal([]byte(cleanedResponse), &llmRankedFolders); err != nil {
+			logger.WarnContext(ctx, "failed to parse LLM response as JSON, using all available folders", "error", err, "response_preview", truncateString(llmResponse, 200))
+			// Fallback: add all remaining folders in original order
+			orderedFolders = append(orderedFolders, foldersForLLM...)
+			return orderedFolders
+		}
+	}
+
+	logger.DebugContext(ctx, "LLM folder ranking response",
+		"llm_response_preview", truncateString(llmResponse, 500),
+		"parsed_folders", llmRankedFolders,
+	)
+
+	// Filter out folders not in available list and add to ordered list
+	// Convert vault names back to vault IDs for internal use
+	for _, folderWithName := range llmRankedFolders {
+		// Find the corresponding folder with vault ID
+		found := false
+		for _, availFolderWithID := range foldersForLLM {
+			// Check if this matches when converted to vault name format
+			expectedWithName, ok := vaultIDToNameMap[availFolderWithID]
+			if ok && expectedWithName == folderWithName {
+				if !seenFolders[availFolderWithID] {
+					// Convert back to vault ID format for internal use
+					orderedFolders = append(orderedFolders, availFolderWithID)
+					seenFolders[availFolderWithID] = true
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			logger.DebugContext(ctx, "LLM returned folder not in available list, skipping", "folder", folderWithName)
+		}
+	}
+
+	// Only return user folders and LLM-ranked folders
+	// If both are empty, return all available folders
+	if len(orderedFolders) == 0 && len(userFolders) == 0 && len(llmRankedFolders) == 0 {
+		logger.InfoContext(ctx, "no user or LLM folders selected, returning all available folders")
+		return availableFolders
+	}
+
+	logger.InfoContext(ctx, "folder selection completed",
+		"user_folders", len(userFolders),
+		"llm_selected", len(llmRankedFolders),
+		"total_ordered", len(orderedFolders),
+	)
+	logger.DebugContext(ctx, "selected folders in order",
+		"ordered_folders", orderedFolders,
+		"user_folders", userFolders,
+		"llm_ranked_folders", llmRankedFolders,
+	)
+
+	return orderedFolders
 }
 
 // Ask answers a question using RAG.
@@ -123,27 +379,113 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		k = 20
 	}
 
-	// Search vector store - search each vault separately and combine results
+	// Get all unique folders for selected vaults
+	availableFolders, err := e.noteRepo.ListUniqueFolders(ctx, vaultIDs)
+	if err != nil {
+		logger.WarnContext(ctx, "failed to list unique folders, searching all folders", "error", err)
+		availableFolders = []string{} // Empty list means search all folders
+	}
+
+	// Build map of vault ID to name for folder conversion
+	vaultIDToNameMap := make(map[int]string)
+	for _, vault := range allVaults {
+		vaultIDToNameMap[vault.ID] = vault.Name
+	}
+
+	// Select relevant folders using LLM
+	orderedFolders := e.selectRelevantFolders(ctx, req.Question, availableFolders, req.Folders, vaultIDs, vaultIDToNameMap)
+
+	logger.InfoContext(ctx, "folder selection completed",
+		"available_folders", len(availableFolders),
+		"ordered_folders", len(orderedFolders),
+		"user_folders", len(req.Folders),
+	)
+	logger.DebugContext(ctx, "final ordered folder list",
+		"ordered_folders", orderedFolders,
+		"available_folders", availableFolders,
+	)
+
+	// Search vector store - search each vault and folder separately
 	var allSearchResults []vectorstore.SearchResult
-	logger.InfoContext(ctx, "searching vector store", "vault_count", len(vaultIDs), "vault_ids", vaultIDs)
-	for _, vaultID := range vaultIDs {
-		filters := make(map[string]any)
-		filters["vault_id"] = vaultID
+	logger.InfoContext(ctx, "searching vector store", "vault_count", len(vaultIDs), "vault_ids", vaultIDs, "folder_count", len(orderedFolders))
 
-		// Add folder filter if provided (prefix matching)
-		if len(req.Folders) > 0 {
-			// For now, use the first folder. TODO: Support multiple folders with OR filter
-			filters["folder"] = req.Folders[0]
-		}
+	// If no folders selected (neither user nor LLM selected any), search all folders (no folder filter)
+	if len(orderedFolders) == 0 {
+		logger.InfoContext(ctx, "no folders selected by user or LLM, searching all folders")
+		for _, vaultID := range vaultIDs {
+			filters := make(map[string]any)
+			filters["vault_id"] = vaultID
+			// No folder filter means search all folders
 
-		logger.DebugContext(ctx, "searching vault", "vault_id", vaultID, "filters", filters, "k", k)
-		results, err := e.vectorStore.Search(ctx, e.collection, queryVector, k, filters)
-		if err != nil {
-			logger.ErrorContext(ctx, "failed to search vector store", "vault_id", vaultID, "error", err)
-			// Continue with other vaults
-			continue
+			logger.DebugContext(ctx, "searching vault (all folders)", "vault_id", vaultID, "k", k)
+			results, err := e.vectorStore.Search(ctx, e.collection, queryVector, k, filters)
+			if err != nil {
+				logger.ErrorContext(ctx, "failed to search vector store", "vault_id", vaultID, "error", err)
+				// Continue with other vaults
+				continue
+			}
+			allSearchResults = append(allSearchResults, results...)
 		}
-		allSearchResults = append(allSearchResults, results...)
+	} else {
+		// Search each folder separately
+		// Weight scores based on folder position (earlier = higher priority)
+		maxFolderWeight := float32(1.0)
+		folderWeightStep := float32(0.1) // Each position reduces weight by 0.1
+
+		for folderIdx, folderPath := range orderedFolders {
+			// Parse folder path: "<vaultID>/folder"
+			parts := strings.SplitN(folderPath, "/", 2)
+			if len(parts) != 2 {
+				logger.WarnContext(ctx, "invalid folder format, skipping", "folder", folderPath)
+				continue
+			}
+
+			var vaultID int
+			if _, err := fmt.Sscanf(parts[0], "%d", &vaultID); err != nil {
+				logger.WarnContext(ctx, "failed to parse vault ID from folder, skipping", "folder", folderPath, "error", err)
+				continue
+			}
+
+			// Check if this vault ID is in our list
+			vaultInList := false
+			for _, vid := range vaultIDs {
+				if vid == vaultID {
+					vaultInList = true
+					break
+				}
+			}
+			if !vaultInList {
+				logger.DebugContext(ctx, "folder vault not in search list, skipping", "folder", folderPath, "vault_id", vaultID)
+				continue
+			}
+
+			folder := parts[1] // folder path without vaultID
+
+			filters := make(map[string]any)
+			filters["vault_id"] = vaultID
+			filters["folder"] = folder
+
+			// Calculate weight for this folder (earlier folders get higher weight)
+			folderWeight := maxFolderWeight - (float32(folderIdx) * folderWeightStep)
+			if folderWeight < 0.1 {
+				folderWeight = 0.1 // Minimum weight
+			}
+
+			logger.DebugContext(ctx, "searching folder", "vault_id", vaultID, "folder", folder, "folder_index", folderIdx, "weight", folderWeight, "k", k)
+			results, err := e.vectorStore.Search(ctx, e.collection, queryVector, k, filters)
+			if err != nil {
+				logger.ErrorContext(ctx, "failed to search vector store", "vault_id", vaultID, "folder", folder, "error", err)
+				// Continue with other folders
+				continue
+			}
+
+			// Apply weight to scores based on folder position
+			for i := range results {
+				results[i].Score = results[i].Score * folderWeight
+			}
+
+			allSearchResults = append(allSearchResults, results...)
+		}
 	}
 
 	// Deduplicate by PointID and sort by score (highest first)

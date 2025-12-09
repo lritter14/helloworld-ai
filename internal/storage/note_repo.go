@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,6 +27,10 @@ type NoteStore interface {
 	Upsert(ctx context.Context, note *NoteRecord) error
 	// DeleteAll deletes all notes from the database.
 	DeleteAll(ctx context.Context) error
+	// ListUniqueFolders returns all unique folder paths, optionally filtered by vault IDs.
+	// If vaultIDs is empty, returns folders from all vaults.
+	// Returns strings in format "<vaultID>/folder" including all nested folders with full path.
+	ListUniqueFolders(ctx context.Context, vaultIDs []int) ([]string, error)
 }
 
 // NoteRepo provides methods for note operations.
@@ -110,4 +115,76 @@ func (r *NoteRepo) DeleteAll(ctx context.Context) error {
 		return fmt.Errorf("failed to delete all notes: %w", err)
 	}
 	return nil
+}
+
+// ListUniqueFolders returns all unique folder paths, optionally filtered by vault IDs.
+// If vaultIDs is empty, returns folders from all vaults.
+// Returns strings in format "<vaultID>/folder" including all nested folders with full path.
+func (r *NoteRepo) ListUniqueFolders(ctx context.Context, vaultIDs []int) ([]string, error) {
+	var query string
+	var args []interface{}
+
+	if len(vaultIDs) > 0 {
+		// Build placeholders for IN clause
+		placeholders := make([]string, len(vaultIDs))
+		for i, vaultID := range vaultIDs {
+			placeholders[i] = "?"
+			args = append(args, vaultID)
+		}
+		query = fmt.Sprintf("SELECT DISTINCT vault_id, folder FROM notes WHERE vault_id IN (%s) ORDER BY vault_id, folder", strings.Join(placeholders, ","))
+	} else {
+		query = "SELECT DISTINCT vault_id, folder FROM notes ORDER BY vault_id, folder"
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query unique folders: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	// Use a map to track unique folder paths and collect all nested folders
+	folderSet := make(map[string]bool)
+	var folders []string
+
+	for rows.Next() {
+		var vaultID int
+		var folder string
+		if err := rows.Scan(&vaultID, &folder); err != nil {
+			return nil, fmt.Errorf("failed to scan folder: %w", err)
+		}
+
+		// Format as "<vaultID>/folder"
+		folderPath := fmt.Sprintf("%d/%s", vaultID, folder)
+		if !folderSet[folderPath] {
+			folderSet[folderPath] = true
+			folders = append(folders, folderPath)
+		}
+
+		// Also include all parent folders (nested folders)
+		// Split folder by "/" and add each prefix
+		if folder != "" {
+			parts := strings.Split(folder, "/")
+			currentPath := ""
+			for _, part := range parts {
+				if currentPath == "" {
+					currentPath = part
+				} else {
+					currentPath = currentPath + "/" + part
+				}
+				parentPath := fmt.Sprintf("%d/%s", vaultID, currentPath)
+				if !folderSet[parentPath] {
+					folderSet[parentPath] = true
+					folders = append(folders, parentPath)
+				}
+			}
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return folders, nil
 }
