@@ -37,9 +37,11 @@ type ChatMessage struct {
 
 // ChatRequest represents the request payload for chat completions.
 type ChatRequest struct {
-	Model    string        `json:"model"`
-	Messages []ChatMessage `json:"messages"`
-	Stream   bool          `json:"stream,omitempty"`
+	Model       string        `json:"model"`
+	Messages    []ChatMessage `json:"messages"`
+	Stream      bool          `json:"stream,omitempty"`
+	MaxTokens   int           `json:"max_tokens,omitempty"`
+	Temperature float32       `json:"temperature,omitempty"`
 }
 
 // ChatChoiceMessage represents the message in a chat choice.
@@ -211,4 +213,76 @@ func (c *Client) StreamChat(ctx context.Context, message string, callback func(c
 	}
 
 	return nil
+}
+
+// ChatWithMessages sends a chat completion request with structured messages and parameters.
+// This method is used by the RAG engine and other consumers that need system prompts
+// and multiple messages. The existing Chat method remains for backward compatibility.
+func (c *Client) ChatWithMessages(ctx context.Context, messages []Message, params ChatParams) (string, error) {
+	url := fmt.Sprintf("%s/v1/chat/completions", c.BaseURL)
+
+	// Convert []Message to []ChatMessage for internal API call
+	chatMessages := make([]ChatMessage, len(messages))
+	for i, msg := range messages {
+		chatMessages[i] = ChatMessage{
+			Role:    msg.Role,
+			Content: msg.Content,
+		}
+	}
+
+	// Use params.Model if provided, otherwise fallback to client's default model
+	model := params.Model
+	if model == "" {
+		model = c.Model
+	}
+
+	payload := ChatRequest{
+		Model:    model,
+		Messages: chatMessages,
+	}
+
+	// Add optional parameters if specified
+	if params.MaxTokens > 0 {
+		payload.MaxTokens = params.MaxTokens
+	}
+	if params.Temperature > 0 {
+		payload.Temperature = params.Temperature
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.APIKey))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("bad status %d: %s", resp.StatusCode, string(raw))
+	}
+
+	var chatResp ChatResponse
+	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		return "", fmt.Errorf("no choices returned")
+	}
+
+	return chatResp.Choices[0].Message.Content, nil
 }

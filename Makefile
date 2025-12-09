@@ -19,8 +19,7 @@ help:
 	@echo "  run-api       - Run the API server only (without Tilt)"
 	@echo "  lint          - Run Go linter"
 	@echo "  test          - Run Go tests"
-	@echo "  build         - Build API binary"
-	@echo "  build-api     - Build the API binary"
+	@echo "  build-api     - Build the API binary (outputs to bin/helloworld-ai-api)"
 	@echo "  deps          - Install Go dependencies"
 	@echo "  clean         - Remove build artifacts"
 
@@ -66,7 +65,6 @@ lint:
 test:
 	@go test ./...
 
-build: build-api
 
 build-api:
 	@mkdir -p bin

@@ -299,42 +299,51 @@ func WrapError(err error, msg string) error {
 - Pin dependency versions for reproducibility in production
 - Regularly audit dependencies for security vulnerabilities
 
-## 10. Naming Conventions
+## 10. Building the Project
 
-### 10.1 Package Names
+### 10.1 Build Guidelines
+
+- **Always use `make build-api` to build the API** - This ensures consistent build configuration
+- The build output is written to `bin/helloworld-ai-api` in the `bin/` directory
+- The `bin/` directory is automatically created if it doesn't exist
+- Never build binaries directly using `go build` - always use the Makefile target
+
+## 11. Naming Conventions
+
+### 11.1 Package Names
 
 - Lowercase - All package names are lowercase
 - Singular preferred - Use singular names when possible
 
-### 10.2 Type Names
+### 11.2 Type Names
 
 - Exported types - PascalCase (e.g., `ChatHandler`, `ChatService`)
 - Private types - camelCase (e.g., `chatService`)
 - Interfaces - No `I` prefix, just descriptive name (e.g., `ChatService`)
 - Database models - Use `*Record` suffix (e.g., `NoteRecord`)
 
-### 10.3 Function Names
+### 11.3 Function Names
 
 - Constructors - `New*` prefix (e.g., `NewChatHandler`)
 - Methods - Descriptive verbs (e.g., `ProcessChat`)
 - Private functions - camelCase (e.g., `getLogger`)
 
-## 11. Code Organization
+## 12. Code Organization
 
-### 11.1 File Organization
+### 12.1 File Organization
 
 - One main type per file - Each file typically contains one main type and its methods
 - Related types together - Related types (e.g., request/response DTOs) can be in same file
 - Error definitions - Domain errors in `errors.go` within the package
 
-### 11.2 Dependency Injection
+### 12.2 Dependency Injection
 
 - Use constructor functions - All types have `New*` constructor functions
 - Dependencies via structs - Group related dependencies in structs (e.g., `http.Deps`)
 - Interfaces for dependencies - Services depend on interfaces, not concrete types
 - Wire dependencies in main - All dependency wiring happens in `cmd/api/main.go`
 
-## 12. General Go Best Practices
+## 13. General Go Best Practices
 
 - Use `go:embed` for embedding static files (e.g., HTML) in binary
 - Defer cleanup - Always defer resource cleanup (e.g., `defer db.Close()`)
