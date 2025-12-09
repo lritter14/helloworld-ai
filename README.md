@@ -72,10 +72,12 @@ This will:
 - Start llama.cpp embeddings server (port 8081) for embeddings generation
 - Start Qdrant (port 6333)
 - Start API server (port 9000) - serves both API and web UI
+- Start Swagger UI (port 8082) - interactive API documentation
 - Watch for file changes and auto-reload
 - Provide a web UI at `http://localhost:10350` to view logs and status
 
 Access the application at `http://localhost:9000`
+Access API documentation at `http://localhost:8082/docs`
 
 To stop all services:
 
@@ -126,6 +128,9 @@ The API server serves:
 - Web UI at `http://localhost:9000/`
 - RAG API endpoint at `http://localhost:9000/api/v1/ask` (question-answering over indexed notes with intelligent folder selection)
 - Index API endpoint at `http://localhost:9000/api/index` (trigger re-indexing)
+- Swagger JSON spec at `http://localhost:9000/api/docs/swagger.json`
+
+When using Tilt, Swagger UI is available at `http://localhost:8082/docs` for interactive API documentation.
 
 ### Indexing
 
@@ -178,8 +183,10 @@ make build
 Build the API binary:
 
 ```bash
-make build-api      # Builds bin/helloworld-ai-api
+make build-api      # Builds bin/helloworld-ai-api (automatically generates Swagger spec)
 ```
+
+The build process automatically generates the Swagger specification from code annotations before building the binary.
 
 ## Development
 
@@ -200,10 +207,11 @@ make stop     # Stop all services
 ### Using Make
 
 ```bash
-make lint          # Run Go linter
-make test          # Run Go tests
-make generate-mocks # Generate mock files for testing
-make deps          # Install Go dependencies
+make lint            # Run Go linter
+make test            # Run Go tests
+make generate-mocks  # Generate mock files for testing
+make generate-swagger # Generate Swagger/OpenAPI specification from code
+make deps            # Install Go dependencies
 ```
 
 ### Testing
@@ -318,10 +326,42 @@ helloworld-ai/
 └── Makefile
 ```
 
+## API Documentation
+
+The API is fully documented using Swagger/OpenAPI 2.0 annotations. The specification is generated from code annotations and served by the API server.
+
+### Accessing API Documentation
+
+**Swagger UI (Interactive):**
+- When using Tilt: `http://localhost:8082/docs`
+- Or run manually: `swagger serve cmd/api/swagger.json`
+
+**Swagger JSON (Raw):**
+- `http://localhost:9000/api/docs/swagger.json`
+
+### Generating Swagger Spec
+
+The Swagger specification is automatically generated during the build process. You can also generate it manually:
+
+```bash
+make generate-swagger
+```
+
+This requires the `swagger` CLI tool. Install it with:
+
+```bash
+go install github.com/go-swagger/go-swagger/cmd/swagger@latest
+```
+
+### Adding API Documentation
+
+All API endpoints are documented using go-swagger annotations. See `internal/handlers/AGENTS.md` for documentation patterns.
+
 ## Architecture Layers
 
 - **Configuration Layer** (`internal/config`) - Environment variable and `.env` file loading
-- **Ingress Layer** (`internal/handlers`) - HTTP request/response handling
+- **Ingress Layer** (`internal/handlers`) - HTTP request/response handling with Swagger documentation
+- **HTTP Infrastructure Layer** (`internal/http`) - Router, middleware, and Swagger JSON serving
 - **Service Layer** (`internal/service`) - Business logic and domain models
 - **RAG Layer** (`internal/rag`) - RAG engine for question-answering over indexed notes
 - **Storage Layer** (`internal/storage`) - Database operations and repositories (SQLite)

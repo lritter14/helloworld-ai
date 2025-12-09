@@ -108,4 +108,3 @@ func TestRouter_MiddlewareApplied(t *testing.T) {
 		t.Error("Router should apply CORS middleware")
 	}
 }
-

@@ -16,10 +16,10 @@ import (
 
 // Deps holds dependencies for the HTTP router.
 type Deps struct {
-	RAGEngine      rag.Engine
-	VaultRepo      storage.VaultStore
+	RAGEngine       rag.Engine
+	VaultRepo       storage.VaultStore
 	IndexerPipeline *indexer.Pipeline
-	IndexHTML      string // Embedded HTML content
+	IndexHTML       string // Embedded HTML content
 }
 
 // NewRouter creates a new HTTP router with the provided dependencies.

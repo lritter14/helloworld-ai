@@ -26,6 +26,27 @@ func NewRouter(deps *Deps) http.Handler {
         r.Route("/v1", func(r chi.Router) {
             r.Method(http.MethodPost, "/ask", askHandler)
         })
+        // Serve Swagger spec at /api/docs/swagger.json
+        r.Route("/docs", func(r chi.Router) {
+            r.Get("/swagger.json", func(w http.ResponseWriter, req *http.Request) {
+                swaggerPath := filepath.Join("cmd", "api", "swagger.json")
+                data, err := os.ReadFile(swaggerPath)
+                if err != nil {
+                    http.Error(w, "Swagger spec not found", http.StatusNotFound)
+                    return
+                }
+                w.Header().Set("Content-Type", "application/json")
+                w.WriteHeader(http.StatusOK)
+                _, _ = w.Write(data)
+            })
+        })
+    })
+    
+    // Serve HTML page at root
+    r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+        w.Header().Set("Content-Type", "text/html; charset=utf-8")
+        w.WriteHeader(http.StatusOK)
+        _, _ = w.Write([]byte(deps.IndexHTML))
     })
     
     return r
@@ -134,6 +155,17 @@ Properly handle error returns:
 _, _ = w.Write([]byte(deps.IndexHTML)) // Ignore error in handler
 ```
 
+## Swagger JSON Serving
+
+The router serves the Swagger specification at `/api/docs/swagger.json`:
+
+- Reads `cmd/api/swagger.json` from disk (not embedded)
+- Returns 404 if file not found
+- Sets proper `Content-Type: application/json` header
+- The spec is generated automatically during build via `make generate-swagger`
+
+When using Tilt, Swagger UI is available at `http://localhost:8082/docs` and loads the spec from the API endpoint.
+
 ## Rules
 
 - Add middleware in logical order
@@ -141,3 +173,4 @@ _, _ = w.Write([]byte(deps.IndexHTML)) // Ignore error in handler
 - Wrap ResponseWriter to capture status codes
 - Handle preflight requests in CORS
 - Handle all error returns (use `_` for intentional ignores)
+- Serve Swagger JSON at `/api/docs/swagger.json` (read from disk, not embedded)

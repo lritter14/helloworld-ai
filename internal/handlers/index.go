@@ -51,7 +51,7 @@ type IndexResponse struct {
 //
 // swagger:route POST /api/index triggerIndex
 //
-// Trigger re-indexing of vaults
+// # Trigger re-indexing of vaults
 //
 // Starts an asynchronous re-indexing process that scans all markdown files
 // in the configured vaults and updates the search index. The operation runs
@@ -61,24 +61,26 @@ type IndexResponse struct {
 // produces:
 // - application/json
 // parameters:
-// - in: query
-//   name: force
-//   type: boolean
-//   default: false
-//   description: If true, clears all existing indexed data before re-indexing
+//   - in: query
+//     name: force
+//     type: boolean
+//     default: false
+//     description: If true, clears all existing indexed data before re-indexing
+//
 // responses:
-//   '202':
-//     description: Indexing started successfully
-//     schema:
-//       "$ref": "#/definitions/IndexResponse"
-//   '405':
-//     description: Method not allowed
-//     schema:
-//       "$ref": "#/definitions/ErrorResponse"
-//   '500':
-//     description: Internal server error
-//     schema:
-//       "$ref": "#/definitions/ErrorResponse"
+//
+//	'202':
+//	  description: Indexing started successfully
+//	  schema:
+//	    "$ref": "#/definitions/IndexResponse"
+//	'405':
+//	  description: Method not allowed
+//	  schema:
+//	    "$ref": "#/definitions/ErrorResponse"
+//	'500':
+//	  description: Internal server error
+//	  schema:
+//	    "$ref": "#/definitions/ErrorResponse"
 func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := h.getLogger(ctx)

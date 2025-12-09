@@ -1,0 +1,179 @@
+{
+  "swagger": "2.0",
+  "info": {},
+  "paths": {
+    "/api/index": {
+      "post": {
+        "description": "Starts an asynchronous re-indexing process that scans all markdown files\nin the configured vaults and updates the search index. The operation runs\nin the background and returns immediately with an accepted status.",
+        "produces": [
+          "application/json"
+        ],
+        "summary": "Trigger re-indexing of vaults",
+        "operationId": "triggerIndex",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "x-go-name": "Force",
+            "description": "If true, clears all existing indexed data before re-indexing",
+            "name": "force",
+            "in": "query"
+          }
+        ],
+        "responses": {}
+      }
+    },
+    "/api/v1/ask": {
+      "post": {
+        "description": "Queries the RAG system with a question and optional filters for vaults and folders.\nReturns an answer generated from relevant indexed content along with source references.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "summary": "Ask a question using RAG",
+        "operationId": "askQuestion",
+        "parameters": [
+          {
+            "name": "Body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/AskRequest"
+            }
+          }
+        ],
+        "responses": {}
+      }
+    }
+  },
+  "definitions": {
+    "AskRequest": {
+      "description": "This mirrors the rag.AskRequest but is defined here for HTTP layer separation.",
+      "type": "object",
+      "title": "AskRequest represents the HTTP request payload for RAG queries.",
+      "properties": {
+        "folders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Folders"
+        },
+        "k": {
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "K"
+        },
+        "question": {
+          "type": "string",
+          "x-go-name": "Question"
+        },
+        "vaults": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "x-go-name": "Vaults"
+        }
+      },
+      "x-go-package": "helloworld-ai/internal/handlers"
+    },
+    "AskResponse": {
+      "description": "This mirrors the rag.AskResponse but is defined here for HTTP layer separation.",
+      "type": "object",
+      "title": "AskResponse represents the HTTP response payload for RAG queries.",
+      "properties": {
+        "answer": {
+          "description": "The generated answer from the RAG system",
+          "type": "string",
+          "x-go-name": "Answer"
+        },
+        "references": {
+          "description": "List of references to source chunks used in the answer",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReferenceResponse"
+          },
+          "x-go-name": "References"
+        }
+      },
+      "x-go-package": "helloworld-ai/internal/handlers"
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "title": "ErrorResponse represents an error response.",
+      "properties": {
+        "error": {
+          "type": "string",
+          "x-go-name": "Error"
+        }
+      },
+      "x-go-package": "helloworld-ai/internal/handlers"
+    },
+    "IndexResponse": {
+      "type": "object",
+      "title": "IndexResponse represents the response from the index endpoint.",
+      "properties": {
+        "message": {
+          "type": "string",
+          "x-go-name": "Message"
+        },
+        "status": {
+          "type": "string",
+          "x-go-name": "Status"
+        }
+      },
+      "x-go-package": "helloworld-ai/internal/handlers"
+    },
+    "ReferenceResponse": {
+      "type": "object",
+      "title": "ReferenceResponse represents a reference in the HTTP response.",
+      "properties": {
+        "chunk_index": {
+          "description": "Index of the chunk within the document",
+          "type": "integer",
+          "format": "int64",
+          "x-go-name": "ChunkIndex"
+        },
+        "heading_path": {
+          "description": "Heading path within the document (e.g., \"H1 \u003e H2 \u003e H3\")",
+          "type": "string",
+          "x-go-name": "HeadingPath"
+        },
+        "rel_path": {
+          "description": "Relative path to the markdown file within the vault",
+          "type": "string",
+          "x-go-name": "RelPath"
+        },
+        "vault": {
+          "description": "Name of the vault containing the source",
+          "type": "string",
+          "x-go-name": "Vault"
+        }
+      },
+      "x-go-package": "helloworld-ai/internal/handlers"
+    }
+  },
+  "responses": {
+    "askResponse": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/AskResponse"
+      }
+    },
+    "errorResponse": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/ErrorResponse"
+      }
+    },
+    "indexResponse": {
+      "description": "",
+      "schema": {
+        "$ref": "#/definitions/IndexResponse"
+      }
+    }
+  }
+}

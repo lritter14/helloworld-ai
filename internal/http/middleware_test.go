@@ -191,4 +191,3 @@ func TestCORS_Headers(t *testing.T) {
 		}
 	}
 }
-

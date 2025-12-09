@@ -671,6 +671,7 @@ _ = stats.MaxIdleClosed // Explicitly use variable
 - **Default K Value:** Default `K = 5` chunks for RAG queries, max `K = 20`
 - **.env Loading:** Use `github.com/joho/godotenv` for automatic `.env` file loading
 - **Vault Scanning:** Skip `.obsidian` directory, scan only `.md` files
+- **API Documentation:** Use go-swagger annotations for all API endpoints. Spec generated from code and served at `/api/docs/swagger.json`. Swagger UI available via Tilt at `http://localhost:8082/docs`
 
 ### Environment Variables
 
@@ -700,11 +701,37 @@ The Go service automatically loads `.env` files from the project root. You can r
 
 **Note:** Chat and embeddings use separate servers and models. The embedding model (`granite-embedding-278m-multilingual`) has a hard context size limit of 512 tokens. Chunks exceeding this limit are automatically skipped during indexing. The `QDRANT_VECTOR_SIZE` must match the output vector size of the embeddings model (typically 1024 for granite-embedding-278m-multilingual).
 
+## API Documentation
+
+The project uses go-swagger for API documentation. All endpoints are documented using Swagger/OpenAPI 2.0 annotations in the handler code.
+
+### Documentation Generation
+
+- **Automatic:** Swagger spec is generated automatically during `make build-api`
+- **Manual:** Run `make generate-swagger` to regenerate the spec
+- **Output:** Generated spec is written to `cmd/api/swagger.json`
+- **Serving:** Spec is served by the API at `/api/docs/swagger.json` (read from disk, not embedded)
+
+### Swagger UI
+
+When using Tilt, Swagger UI is automatically started on port 8082:
+- **URL:** `http://localhost:8082/docs`
+- **Purpose:** Interactive API documentation and testing interface
+- **Dependency:** Requires `swagger` CLI tool (install via `go install github.com/go-swagger/go-swagger/cmd/swagger@latest`)
+
+### Documentation Patterns
+
+See `internal/handlers/AGENTS.md` for detailed patterns on:
+- Route documentation (`swagger:route`)
+- Parameter documentation (`swagger:parameters`)
+- Response documentation (`swagger:response`)
+- Field descriptions and validation rules
+
 ## Layer-Specific Documentation
 
 For detailed patterns specific to each layer, see:
 
-- **Handlers:** `internal/handlers/AGENTS.md` - HTTP handler patterns, DTOs, streaming, RAG handler
+- **Handlers:** `internal/handlers/AGENTS.md` - HTTP handler patterns, DTOs, Swagger documentation, RAG handler
 - **Service:** `internal/service/AGENTS.md` - Business logic, domain errors, validation
 - **RAG:** `internal/rag/AGENTS.md` - RAG engine patterns, question-answering workflow
 - **Storage:** `internal/storage/AGENTS.md` - Repository pattern, database operations, GetByID for RAG
@@ -712,5 +739,5 @@ For detailed patterns specific to each layer, see:
 - **Vault:** `internal/vault/AGENTS.md` - Vault management and file scanning
 - **Indexer:** `internal/indexer/AGENTS.md` - Markdown chunking and indexing pipeline
 - **LLM:** `internal/llm/AGENTS.md` - External service client patterns (chat and embeddings)
-- **HTTP:** `internal/http/AGENTS.md` - Middleware, router setup, RAG route
+- **HTTP:** `internal/http/AGENTS.md` - Middleware, router setup, Swagger JSON serving
 - **Config:** `internal/config/AGENTS.md` - Configuration patterns and .env loading
