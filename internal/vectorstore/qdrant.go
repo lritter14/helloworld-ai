@@ -114,10 +114,37 @@ func (s *QdrantStore) Search(ctx context.Context, collection string, query []flo
 	if len(filters) > 0 {
 		mustConditions := make([]*qdrant.Condition, 0)
 
-		// Handle vault_id filter
+		// Handle vault_id filter (must be integer to match stored type)
 		if vaultID, ok := filters["vault_id"]; ok {
-			vaultIDStr := fmt.Sprintf("%v", vaultID)
-			mustConditions = append(mustConditions, qdrant.NewMatch("vault_id", vaultIDStr))
+			// Convert to int64 for Qdrant (vault_id is stored as integer)
+			var vaultIDInt int64
+			switch v := vaultID.(type) {
+			case int:
+				vaultIDInt = int64(v)
+			case int32:
+				vaultIDInt = int64(v)
+			case int64:
+				vaultIDInt = v
+			default:
+				// Try to convert via string parsing as fallback
+				if str, ok := v.(string); ok {
+					if parsed, err := strconv.ParseInt(str, 10, 64); err == nil {
+						vaultIDInt = parsed
+					} else {
+						logger.WarnContext(ctx, "invalid vault_id type, skipping filter", "vault_id", vaultID, "type", fmt.Sprintf("%T", vaultID))
+						// Skip this filter condition - vaultIDInt will be 0 which is invalid
+						vaultIDInt = 0
+					}
+				} else {
+					logger.WarnContext(ctx, "invalid vault_id type, skipping filter", "vault_id", vaultID, "type", fmt.Sprintf("%T", vaultID))
+					// Skip this filter condition - vaultIDInt will be 0 which is invalid
+					vaultIDInt = 0
+				}
+			}
+			// Use NewMatchInt for integer matching (vault_id is stored as integer)
+			if vaultIDInt != 0 {
+				mustConditions = append(mustConditions, qdrant.NewMatchInt("vault_id", vaultIDInt))
+			}
 		}
 
 		// Handle folder filter (prefix matching)
@@ -277,6 +304,49 @@ func (s *QdrantStore) EnsureCollection(ctx context.Context, collection string, v
 
 	logger.InfoContext(ctx, "collection validated", "collection", collection, "vector_size", vectorSize)
 	return nil
+}
+
+// GetCollectionInfo returns information about a collection including point count.
+func (s *QdrantStore) GetCollectionInfo(ctx context.Context, collection string) (*CollectionInfo, error) {
+	info, err := s.client.GetCollectionInfo(ctx, collection)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get collection info: %w", err)
+	}
+
+	// Extract vector size
+	var vectorSize int
+	if config := info.Config; config != nil && config.Params != nil {
+		if vectorsConfig := config.Params.GetVectorsConfig(); vectorsConfig != nil {
+			if params := vectorsConfig.GetParams(); params != nil {
+				vectorSize = int(params.Size)
+			}
+		}
+	}
+
+	// Extract point count (PointsCount is a pointer to uint64)
+	var pointsCount int
+	if info.PointsCount != nil {
+		pointsCount = int(*info.PointsCount)
+	}
+
+	// Extract status (Status is an enum, not a pointer)
+	status := "unknown"
+	if info.Status != 0 {
+		status = info.Status.String()
+	}
+
+	return &CollectionInfo{
+		VectorSize:  vectorSize,
+		PointsCount: pointsCount,
+		Status:      status,
+	}, nil
+}
+
+// CollectionInfo contains information about a Qdrant collection.
+type CollectionInfo struct {
+	VectorSize  int
+	PointsCount int
+	Status      string
 }
 
 // convertPayloadToMap converts Qdrant payload to map[string]any.

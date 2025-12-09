@@ -12,8 +12,8 @@ import (
 
 	"helloworld-ai/internal/llm"
 	"helloworld-ai/internal/storage"
-	"helloworld-ai/internal/vectorstore"
 	"helloworld-ai/internal/vault"
+	"helloworld-ai/internal/vectorstore"
 )
 
 // Pipeline orchestrates the indexing of markdown files into SQLite and Qdrant.
@@ -64,7 +64,8 @@ func (p *Pipeline) getLogger(ctx context.Context) *slog.Logger {
 // IndexNote indexes a single note file.
 // It checks if the file has changed (via hash), chunks it, generates embeddings,
 // and stores chunks in both SQLite and Qdrant.
-func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath string) error {
+// folder is the folder path (already calculated from relPath during scanning).
+func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath, folder string) error {
 	logger := p.getLogger(ctx)
 
 	// Get absolute path
@@ -89,7 +90,8 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath string) e
 		return fmt.Errorf("failed to check existing note: %w", err)
 	}
 
-	// Skip re-indexing if hash matches
+	// Skip re-indexing if hash matches (unless force is enabled)
+	// Force reindex is handled at the IndexAll level by clearing all data first
 	if existingNote != nil && existingNote.Hash == hashHex {
 		logger.DebugContext(ctx, "skipping unchanged file", "rel_path", relPath, "hash", hashHex)
 		return nil
@@ -109,12 +111,9 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath string) e
 		return nil
 	}
 
-	// Calculate folder from relPath (path components except filename)
-	folder := filepath.Dir(relPath)
-	if folder == "." || folder == "" {
-		folder = ""
-	} else {
-		// Normalize to forward slashes
+	// Folder is already calculated during scanning, use it as-is
+	// (normalize to forward slashes if needed)
+	if folder != "" {
 		folder = filepath.ToSlash(folder)
 	}
 
@@ -141,12 +140,12 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath string) e
 
 	// Upsert note record
 	noteRecord := &storage.NoteRecord{
-		ID:       noteID,
-		VaultID:  vaultID,
-		RelPath:  relPath,
-		Folder:   folder,
-		Title:    title,
-		Hash:     hashHex,
+		ID:      noteID,
+		VaultID: vaultID,
+		RelPath: relPath,
+		Folder:  folder,
+		Title:   title,
+		Hash:    hashHex,
 	}
 	if err := p.noteRepo.Upsert(ctx, noteRecord); err != nil {
 		return fmt.Errorf("failed to upsert note: %w", err)
@@ -179,10 +178,54 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath string) e
 		chunkTexts[i] = chunk.Text
 	}
 
-	// Generate embeddings
-	embeddings, err := p.embedder.EmbedTexts(ctx, chunkTexts)
-	if err != nil {
-		return fmt.Errorf("failed to generate embeddings: %w", err)
+	// Generate embeddings in batches to avoid exceeding server batch size limits
+	// Limit by both count and total character size to handle large chunks
+	const maxBatchCount = 5    // Max number of chunks per batch
+	const maxBatchChars = 8000 // Max total characters per batch (conservative limit)
+	embeddings := make([][]float32, 0, len(chunks))
+
+	i := 0
+	for i < len(chunkTexts) {
+		// Build batch respecting both count and character limits
+		batch := make([]string, 0, maxBatchCount)
+		batchChars := 0
+		startIdx := i
+
+		for i < len(chunkTexts) && len(batch) < maxBatchCount {
+			chunkText := chunkTexts[i]
+			chunkChars := len(chunkText)
+
+			// If adding this chunk would exceed character limit, stop
+			if len(batch) > 0 && batchChars+chunkChars > maxBatchChars {
+				break
+			}
+
+			// If single chunk exceeds limit, we still need to process it (but warn)
+			if chunkChars > maxBatchChars {
+				logger.WarnContext(ctx, "chunk exceeds batch character limit, processing individually",
+					"rel_path", relPath,
+					"chunk_index", i,
+					"chunk_size", chunkChars,
+					"limit", maxBatchChars,
+				)
+			}
+
+			batch = append(batch, chunkText)
+			batchChars += chunkChars
+			i++
+		}
+
+		if len(batch) == 0 {
+			// Shouldn't happen, but safety check
+			break
+		}
+
+		batchEmbeddings, err := p.embedder.EmbedTexts(ctx, batch)
+		if err != nil {
+			return fmt.Errorf("failed to generate embeddings for batch %d-%d: %w", startIdx, i-1, err)
+		}
+
+		embeddings = append(embeddings, batchEmbeddings...)
 	}
 
 	if len(embeddings) != len(chunks) {
@@ -211,14 +254,14 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath string) e
 			ID:  chunkID,
 			Vec: embeddings[i],
 			Meta: map[string]any{
-				"vault_id":    vaultID,
-				"vault_name":  vaultName,
-				"note_id":     noteID,
-				"rel_path":    relPath,
-				"folder":      folder,
+				"vault_id":     vaultID,
+				"vault_name":   vaultName,
+				"note_id":      noteID,
+				"rel_path":     relPath,
+				"folder":       folder,
 				"heading_path": chunk.HeadingPath,
-				"chunk_index": chunk.Index,
-				"note_title":  title,
+				"chunk_index":  chunk.Index,
+				"note_title":   title,
 			},
 		}
 	}
@@ -236,6 +279,43 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath string) e
 	}
 
 	logger.InfoContext(ctx, "indexed note", "rel_path", relPath, "chunks", len(chunks), "title", title)
+	return nil
+}
+
+// ClearAll deletes all indexed data (chunks, notes, and Qdrant points).
+// This is used for force reindexing.
+func (p *Pipeline) ClearAll(ctx context.Context) error {
+	logger := p.getLogger(ctx)
+	logger.InfoContext(ctx, "clearing all indexed data")
+
+	// Get all chunk IDs from database before deleting
+	chunkIDs, err := p.chunkRepo.GetAllIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get chunk IDs: %w", err)
+	}
+
+	// Delete all points from Qdrant
+	if len(chunkIDs) > 0 {
+		if err := p.vectorStore.Delete(ctx, p.collection, chunkIDs); err != nil {
+			logger.WarnContext(ctx, "failed to delete some points from Qdrant", "error", err)
+			// Continue even if Qdrant deletion fails
+		} else {
+			logger.InfoContext(ctx, "deleted points from Qdrant", "count", len(chunkIDs))
+		}
+	}
+
+	// Delete all chunks from database
+	if err := p.chunkRepo.DeleteAll(ctx); err != nil {
+		return fmt.Errorf("failed to delete chunks: %w", err)
+	}
+	logger.InfoContext(ctx, "deleted all chunks from database")
+
+	// Delete all notes
+	if err := p.noteRepo.DeleteAll(ctx); err != nil {
+		return fmt.Errorf("failed to delete notes: %w", err)
+	}
+	logger.InfoContext(ctx, "deleted all notes from database")
+
 	return nil
 }
 
@@ -263,7 +343,7 @@ func (p *Pipeline) IndexAll(ctx context.Context) error {
 		default:
 		}
 
-		if err := p.IndexNote(ctx, file.VaultID, file.RelPath); err != nil {
+		if err := p.IndexNote(ctx, file.VaultID, file.RelPath, file.Folder); err != nil {
 			errorCount++
 			logger.ErrorContext(ctx, "failed to index file", "rel_path", file.RelPath, "error", err)
 			// Continue with next file
@@ -281,4 +361,3 @@ func (p *Pipeline) IndexAll(ctx context.Context) error {
 
 	return nil
 }
-

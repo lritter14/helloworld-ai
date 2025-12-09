@@ -41,6 +41,20 @@ func (m *MockChunkStore) EXPECT() *MockChunkStoreMockRecorder {
 	return m.recorder
 }
 
+// DeleteAll mocks base method.
+func (m *MockChunkStore) DeleteAll(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAll", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAll indicates an expected call of DeleteAll.
+func (mr *MockChunkStoreMockRecorder) DeleteAll(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAll", reflect.TypeOf((*MockChunkStore)(nil).DeleteAll), ctx)
+}
+
 // DeleteByNote mocks base method.
 func (m *MockChunkStore) DeleteByNote(ctx context.Context, noteID string) error {
 	m.ctrl.T.Helper()
@@ -53,6 +67,21 @@ func (m *MockChunkStore) DeleteByNote(ctx context.Context, noteID string) error 
 func (mr *MockChunkStoreMockRecorder) DeleteByNote(ctx, noteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByNote", reflect.TypeOf((*MockChunkStore)(nil).DeleteByNote), ctx, noteID)
+}
+
+// GetAllIDs mocks base method.
+func (m *MockChunkStore) GetAllIDs(ctx context.Context) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllIDs", ctx)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllIDs indicates an expected call of GetAllIDs.
+func (mr *MockChunkStoreMockRecorder) GetAllIDs(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllIDs", reflect.TypeOf((*MockChunkStore)(nil).GetAllIDs), ctx)
 }
 
 // GetByID mocks base method.

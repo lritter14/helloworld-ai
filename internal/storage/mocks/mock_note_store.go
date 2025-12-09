@@ -41,6 +41,20 @@ func (m *MockNoteStore) EXPECT() *MockNoteStoreMockRecorder {
 	return m.recorder
 }
 
+// DeleteAll mocks base method.
+func (m *MockNoteStore) DeleteAll(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteAll", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteAll indicates an expected call of DeleteAll.
+func (mr *MockNoteStoreMockRecorder) DeleteAll(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteAll", reflect.TypeOf((*MockNoteStore)(nil).DeleteAll), ctx)
+}
+
 // GetByVaultAndPath mocks base method.
 func (m *MockNoteStore) GetByVaultAndPath(ctx context.Context, vaultID int, relPath string) (*storage.NoteRecord, error) {
 	m.ctrl.T.Helper()

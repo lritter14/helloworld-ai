@@ -19,6 +19,10 @@ type ChunkStore interface {
 	ListIDsByNote(ctx context.Context, noteID string) ([]string, error)
 	// GetByID gets a chunk by its ID. Returns ErrNotFound if not found.
 	GetByID(ctx context.Context, id string) (*ChunkRecord, error)
+	// GetAllIDs returns all chunk IDs in the database.
+	GetAllIDs(ctx context.Context) ([]string, error)
+	// DeleteAll deletes all chunks from the database.
+	DeleteAll(ctx context.Context) error
 }
 
 // ChunkRepo provides methods for chunk operations.
@@ -102,4 +106,39 @@ func (r *ChunkRepo) GetByID(ctx context.Context, id string) (*ChunkRecord, error
 	}
 
 	return &chunk, nil
+}
+
+// GetAllIDs returns all chunk IDs in the database.
+func (r *ChunkRepo) GetAllIDs(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT id FROM chunks")
+	if err != nil {
+		return nil, fmt.Errorf("failed to query chunk IDs: %w", err)
+	}
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("failed to scan chunk ID: %w", err)
+		}
+		ids = append(ids, id)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("row iteration error: %w", err)
+	}
+
+	return ids, nil
+}
+
+// DeleteAll deletes all chunks from the database.
+func (r *ChunkRepo) DeleteAll(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM chunks")
+	if err != nil {
+		return fmt.Errorf("failed to delete all chunks: %w", err)
+	}
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"helloworld-ai/internal/handlers"
+	"helloworld-ai/internal/indexer"
 	"helloworld-ai/internal/rag"
 	"helloworld-ai/internal/service"
 	"helloworld-ai/internal/storage"
@@ -14,10 +15,11 @@ import (
 
 // Deps holds dependencies for the HTTP router.
 type Deps struct {
-	ChatService service.ChatService
-	RAGEngine   rag.Engine
-	VaultRepo   storage.VaultStore
-	IndexHTML   string // Embedded HTML content
+	ChatService    service.ChatService
+	RAGEngine      rag.Engine
+	VaultRepo      storage.VaultStore
+	IndexerPipeline *indexer.Pipeline
+	IndexHTML      string // Embedded HTML content
 }
 
 // NewRouter creates a new HTTP router with the provided dependencies.
@@ -39,10 +41,12 @@ func NewRouter(deps *Deps) http.Handler {
 	// Create handlers
 	chatHandler := handlers.NewChatHandler(deps.ChatService)
 	askHandler := handlers.NewAskHandler(deps.RAGEngine, deps.VaultRepo)
+	indexHandler := handlers.NewIndexHandler(deps.IndexerPipeline)
 
 	// Register API routes
 	r.Route("/api", func(r chi.Router) {
 		r.Method(http.MethodPost, "/chat", chatHandler)
+		r.Method(http.MethodPost, "/index", indexHandler) // Re-index endpoint
 		r.Route("/v1", func(r chi.Router) {
 			r.Method(http.MethodPost, "/ask", askHandler)
 		})

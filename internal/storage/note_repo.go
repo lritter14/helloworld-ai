@@ -24,6 +24,8 @@ type NoteStore interface {
 	GetByVaultAndPath(ctx context.Context, vaultID int, relPath string) (*NoteRecord, error)
 	// Upsert inserts a new note or updates an existing one.
 	Upsert(ctx context.Context, note *NoteRecord) error
+	// DeleteAll deletes all notes from the database.
+	DeleteAll(ctx context.Context) error
 }
 
 // NoteRepo provides methods for note operations.
@@ -98,5 +100,14 @@ func (r *NoteRepo) Upsert(ctx context.Context, note *NoteRecord) error {
 		return fmt.Errorf("failed to upsert note: %w", err)
 	}
 
+	return nil
+}
+
+// DeleteAll deletes all notes from the database.
+func (r *NoteRepo) DeleteAll(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, "DELETE FROM notes")
+	if err != nil {
+		return fmt.Errorf("failed to delete all notes: %w", err)
+	}
 	return nil
 }

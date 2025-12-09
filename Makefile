@@ -1,4 +1,4 @@
-.PHONY: run run-api start stop tilt-up tilt-down tilt-restart start-llama lint test build build-api deps clean help generate-mocks
+.PHONY: run run-api start stop tilt-up tilt-down tilt-restart start-llama lint test build build-api deps clean help generate-mocks test-rag
 
 # llama.cpp server configuration
 LLAMA_SERVER ?= ../llama.cpp/build/bin/llama-server
@@ -22,6 +22,9 @@ help:
 	@echo "  build-api     - Build the API binary (outputs to bin/helloworld-ai-api)"
 	@echo "  deps          - Install Go dependencies"
 	@echo "  generate-mocks - Generate mock files for testing"
+	@echo "  test-rag      - Run RAG endpoint test script"
+	@echo "  reindex       - Re-index all vaults via API (skips unchanged files)"
+	@echo "  force-reindex - Force re-index via API (clears all data and rebuilds from scratch)"
 	@echo "  clean         - Remove build artifacts"
 
 # Default target - start all services with Tilt
@@ -82,6 +85,26 @@ deps: deps-go
 deps-go:
 	@go mod download
 	@go mod tidy
+
+test-rag:
+	@if [ -z "$(QUESTION)" ]; then \
+		./scripts/test-rag.sh; \
+	else \
+		./scripts/test-rag.sh "$(QUESTION)"; \
+	fi
+
+reindex:
+	@echo "Calling re-index API at http://localhost:$(API_PORT)/api/index"
+	@curl -X POST http://localhost:$(API_PORT)/api/index \
+		-H "Content-Type: application/json" \
+		-s | jq '.' || echo "Indexing started. Check server logs for progress."
+
+force-reindex:
+	@echo "Force reindexing: clearing all existing data and rebuilding..."
+	@echo "Calling force re-index API at http://localhost:$(API_PORT)/api/index?force=true"
+	@curl -X POST "http://localhost:$(API_PORT)/api/index?force=true" \
+		-H "Content-Type: application/json" \
+		-s | jq '.' || echo "Force re-indexing started. Check server logs for progress."
 
 clean:
 	@rm -rf bin/

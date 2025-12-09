@@ -11,18 +11,18 @@ import (
 
 // Config holds all configuration for the application.
 type Config struct {
-	LLMBaseURL        string
-	LLMModelName      string
-	LLMAPIKey         string
-	EmbeddingBaseURL  string
+	LLMBaseURL         string
+	LLMModelName       string
+	LLMAPIKey          string
+	EmbeddingBaseURL   string
 	EmbeddingModelName string
-	DBPath            string
-	VaultPersonalPath string
-	VaultWorkPath     string
-	QdrantURL         string
-	QdrantCollection  string
-	QdrantVectorSize  int
-	APIPort           string
+	DBPath             string
+	VaultPersonalPath  string
+	VaultWorkPath      string
+	QdrantURL          string
+	QdrantCollection   string
+	QdrantVectorSize   int
+	APIPort            string
 }
 
 // Load reads configuration from environment variables and returns a Config struct.
@@ -33,7 +33,7 @@ func Load() (*Config, error) {
 	// Try to load .env file (ignore error if it doesn't exist)
 	// Check current directory first, then walk up to find project root (where go.mod is)
 	_ = godotenv.Load() // Try current directory
-	
+
 	// Try to find project root by looking for go.mod
 	wd, err := os.Getwd()
 	if err == nil {
@@ -54,19 +54,19 @@ func Load() (*Config, error) {
 
 	llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8080")
 	llmModelName := getEnv("LLM_MODEL", "local-model")
-	
+
 	cfg := &Config{
-		LLMBaseURL:        llmBaseURL,
-		LLMModelName:      llmModelName,
-		LLMAPIKey:         getEnv("LLM_API_KEY", "dummy-key"),
-		EmbeddingBaseURL:  getEnv("EMBEDDING_BASE_URL", llmBaseURL),  // Default to same as LLM_BASE_URL
+		LLMBaseURL:         llmBaseURL,
+		LLMModelName:       llmModelName,
+		LLMAPIKey:          getEnv("LLM_API_KEY", "dummy-key"),
+		EmbeddingBaseURL:   getEnv("EMBEDDING_BASE_URL", llmBaseURL),     // Default to same as LLM_BASE_URL
 		EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", llmModelName), // Default to same as LLM_MODEL
-		DBPath:            getEnv("DB_PATH", "./data/helloworld-ai.db"),
-		VaultPersonalPath: getEnv("VAULT_PERSONAL_PATH", ""),
-		VaultWorkPath:     getEnv("VAULT_WORK_PATH", ""),
-		QdrantURL:         getEnv("QDRANT_URL", "http://localhost:6333"),
-		QdrantCollection:  getEnv("QDRANT_COLLECTION", "notes"),
-		APIPort:           getEnv("API_PORT", "9000"),
+		DBPath:             getEnv("DB_PATH", "./data/helloworld-ai.db"),
+		VaultPersonalPath:  getEnv("VAULT_PERSONAL_PATH", ""),
+		VaultWorkPath:      getEnv("VAULT_WORK_PATH", ""),
+		QdrantURL:          getEnv("QDRANT_URL", "http://localhost:6333"),
+		QdrantCollection:   getEnv("QDRANT_COLLECTION", "notes"),
+		APIPort:            getEnv("API_PORT", "9000"),
 	}
 
 	// Parse QDRANT_VECTOR_SIZE
@@ -107,4 +107,3 @@ func getEnv(key, defaultValue string) string {
 	}
 	return defaultValue
 }
-

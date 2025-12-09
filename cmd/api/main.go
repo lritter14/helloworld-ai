@@ -4,7 +4,9 @@ import (
 	"context"
 	_ "embed"
 	"log"
+	"log/slog"
 	nethttp "net/http"
+	"os"
 
 	"helloworld-ai/internal/config"
 	"helloworld-ai/internal/http"
@@ -21,6 +23,15 @@ import (
 var indexHTML string
 
 func main() {
+	// Configure structured logging with DEBUG level
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}
+	handler := slog.NewTextHandler(os.Stdout, opts)
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+	log.Printf("Debug logging enabled")
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -115,10 +126,11 @@ func main() {
 
 	// Create router with dependencies
 	deps := &http.Deps{
-		ChatService: chatService,
-		RAGEngine:   ragEngine,
-		VaultRepo:   vaultRepo,
-		IndexHTML:   indexHTML,
+		ChatService:     chatService,
+		RAGEngine:       ragEngine,
+		VaultRepo:       vaultRepo,
+		IndexerPipeline: indexerPipeline,
+		IndexHTML:       indexHTML,
 	}
 	router := http.NewRouter(deps)
 

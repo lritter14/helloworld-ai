@@ -79,7 +79,7 @@ pipeline := indexer.NewPipeline(
 ### Indexing a Single Note
 
 ```go
-err := pipeline.IndexNote(ctx, vaultID, relPath)
+err := pipeline.IndexNote(ctx, vaultID, relPath, folder)
 if err != nil {
     return fmt.Errorf("failed to index note: %w", err)
 }
@@ -92,7 +92,7 @@ if err != nil {
 3. Compute SHA256 hash
 4. Check existing note - skip if hash matches (unchanged)
 5. Chunk content using `chunker.ChunkMarkdown()`
-6. Calculate folder from relPath
+6. Use folder passed as parameter (already calculated during scanning)
 7. Upsert note record (generate UUID if new)
 8. If existing note, delete old chunks (SQLite + Qdrant)
 9. Generate embeddings for all chunk texts

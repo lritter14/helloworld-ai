@@ -64,6 +64,13 @@ func (e *ragEngine) getLogger(ctx context.Context) *slog.Logger {
 func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error) {
 	logger := e.getLogger(ctx)
 
+	logger.InfoContext(ctx, "RAG query started",
+		"question", req.Question,
+		"vaults", req.Vaults,
+		"folders", req.Folders,
+		"k", req.K,
+	)
+
 	// Embed the question
 	embeddings, err := e.embedder.EmbedTexts(ctx, []string{req.Question})
 	if err != nil {
@@ -75,21 +82,22 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	}
 	queryVector := embeddings[0]
 
-	// Resolve vault names to IDs if provided
+	// Get all vaults to resolve names to IDs
+	allVaults, err := e.vaultRepo.ListAll(ctx)
+	if err != nil {
+		logger.ErrorContext(ctx, "failed to list vaults", "error", err)
+		return AskResponse{}, fmt.Errorf("failed to list vaults: %w", err)
+	}
+
+	// Build map of vault name to ID
+	vaultMap := make(map[string]int)
+	for _, vault := range allVaults {
+		vaultMap[vault.Name] = vault.ID
+	}
+
+	// Resolve vault names to IDs - if no vaults specified, use all vaults
 	var vaultIDs []int
 	if len(req.Vaults) > 0 {
-		allVaults, err := e.vaultRepo.ListAll(ctx)
-		if err != nil {
-			logger.ErrorContext(ctx, "failed to list vaults", "error", err)
-			return AskResponse{}, fmt.Errorf("failed to list vaults: %w", err)
-		}
-
-		// Build map of vault name to ID
-		vaultMap := make(map[string]int)
-		for _, vault := range allVaults {
-			vaultMap[vault.Name] = vault.ID
-		}
-
 		// Collect vault IDs for requested vaults
 		for _, vaultName := range req.Vaults {
 			if vaultID, ok := vaultMap[vaultName]; ok {
@@ -98,6 +106,11 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 				logger.WarnContext(ctx, "unknown vault name", "vault", vaultName)
 				// Continue with other vaults
 			}
+		}
+	} else {
+		// No vaults specified - search all vaults
+		for _, vault := range allVaults {
+			vaultIDs = append(vaultIDs, vault.ID)
 		}
 	}
 
@@ -110,56 +123,12 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		k = 20
 	}
 
-	// Search vector store - handle multiple vaults by searching each separately
+	// Search vector store - search each vault separately and combine results
 	var allSearchResults []vectorstore.SearchResult
-	if len(vaultIDs) > 0 {
-		// Search each vault separately and combine results
-		for _, vaultID := range vaultIDs {
-			filters := make(map[string]any)
-			filters["vault_id"] = vaultID
-
-			// Add folder filter if provided (prefix matching)
-			if len(req.Folders) > 0 {
-				// For now, use the first folder. TODO: Support multiple folders with OR filter
-				filters["folder"] = req.Folders[0]
-			}
-
-			results, err := e.vectorStore.Search(ctx, e.collection, queryVector, k, filters)
-			if err != nil {
-				logger.ErrorContext(ctx, "failed to search vector store", "vault_id", vaultID, "error", err)
-				// Continue with other vaults
-				continue
-			}
-			allSearchResults = append(allSearchResults, results...)
-		}
-
-		// Deduplicate by PointID and sort by score (highest first)
-		seen := make(map[string]bool)
-		deduplicated := make([]vectorstore.SearchResult, 0, len(allSearchResults))
-		for _, result := range allSearchResults {
-			if !seen[result.PointID] {
-				seen[result.PointID] = true
-				deduplicated = append(deduplicated, result)
-			}
-		}
-
-		// Sort by score (descending)
-		for i := 0; i < len(deduplicated)-1; i++ {
-			for j := i + 1; j < len(deduplicated); j++ {
-				if deduplicated[i].Score < deduplicated[j].Score {
-					deduplicated[i], deduplicated[j] = deduplicated[j], deduplicated[i]
-				}
-			}
-		}
-
-		// Take top K results
-		if len(deduplicated) > k {
-			deduplicated = deduplicated[:k]
-		}
-		allSearchResults = deduplicated
-	} else {
-		// No vault filter - search all vaults
+	logger.InfoContext(ctx, "searching vector store", "vault_count", len(vaultIDs), "vault_ids", vaultIDs)
+	for _, vaultID := range vaultIDs {
 		filters := make(map[string]any)
+		filters["vault_id"] = vaultID
 
 		// Add folder filter if provided (prefix matching)
 		if len(req.Folders) > 0 {
@@ -167,15 +136,51 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 			filters["folder"] = req.Folders[0]
 		}
 
-		var err error
-		allSearchResults, err = e.vectorStore.Search(ctx, e.collection, queryVector, k, filters)
+		logger.DebugContext(ctx, "searching vault", "vault_id", vaultID, "filters", filters, "k", k)
+		results, err := e.vectorStore.Search(ctx, e.collection, queryVector, k, filters)
 		if err != nil {
-			logger.ErrorContext(ctx, "failed to search vector store", "error", err)
-			return AskResponse{}, fmt.Errorf("failed to search vector store: %w", err)
+			logger.ErrorContext(ctx, "failed to search vector store", "vault_id", vaultID, "error", err)
+			// Continue with other vaults
+			continue
+		}
+		allSearchResults = append(allSearchResults, results...)
+	}
+
+	// Deduplicate by PointID and sort by score (highest first)
+	seen := make(map[string]bool)
+	deduplicated := make([]vectorstore.SearchResult, 0, len(allSearchResults))
+	for _, result := range allSearchResults {
+		if !seen[result.PointID] {
+			seen[result.PointID] = true
+			deduplicated = append(deduplicated, result)
 		}
 	}
 
+	// Sort by score (descending)
+	for i := 0; i < len(deduplicated)-1; i++ {
+		for j := i + 1; j < len(deduplicated); j++ {
+			if deduplicated[i].Score < deduplicated[j].Score {
+				deduplicated[i], deduplicated[j] = deduplicated[j], deduplicated[i]
+			}
+		}
+	}
+
+	// Take top K results
+	if len(deduplicated) > k {
+		deduplicated = deduplicated[:k]
+	}
+	allSearchResults = deduplicated
+
 	searchResults := allSearchResults
+
+	logger.InfoContext(ctx, "vector search completed", "results_count", len(searchResults), "k_requested", k)
+	if len(searchResults) > 0 {
+		topScores := make([]float32, 0, 3)
+		for i := 0; i < len(searchResults) && i < 3; i++ {
+			topScores = append(topScores, searchResults[i].Score)
+		}
+		logger.DebugContext(ctx, "top search results", "top_3_scores", topScores)
+	}
 
 	if len(searchResults) == 0 {
 		logger.InfoContext(ctx, "no search results found")
@@ -195,7 +200,7 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	}
 
 	chunks := make([]chunkData, 0, len(searchResults))
-	for _, result := range searchResults {
+	for i, result := range searchResults {
 		// Extract metadata from search result
 		vaultName, _ := result.Meta["vault_name"].(string)
 		relPath, _ := result.Meta["rel_path"].(string)
@@ -217,7 +222,25 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 			headingPath: headingPath,
 			chunkIndex:  chunkIndex,
 		})
+
+		// Log chunk details for debugging
+		textPreview := chunk.Text
+		if len(textPreview) > 100 {
+			textPreview = textPreview[:100] + "..."
+		}
+		logger.DebugContext(ctx, "retrieved chunk",
+			"rank", i+1,
+			"score", result.Score,
+			"vault", vaultName,
+			"rel_path", relPath,
+			"heading_path", headingPath,
+			"chunk_index", chunkIndex,
+			"text_preview", textPreview,
+			"text_length", len(chunk.Text),
+		)
 	}
+
+	logger.InfoContext(ctx, "chunks retrieved from database", "total_chunks", len(chunks), "search_results", len(searchResults))
 
 	// Format context string
 	var contextBuilder strings.Builder
@@ -231,17 +254,36 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	contextBuilder.WriteString("--- End Context ---")
 
+	contextString := contextBuilder.String()
+	logger.InfoContext(ctx, "context formatted for LLM",
+		"context_length", len(contextString),
+		"chunks_included", len(chunks),
+	)
+	logger.DebugContext(ctx, "full context being sent to LLM", "context", contextString)
+
 	// Construct LLM messages
 	systemPrompt := "You are a helpful assistant that answers questions based on the provided context from the user's notes. " +
 		"Answer the question using only the information from the context below. If the context doesn't contain " +
 		"enough information to answer the question, say so. Cite specific sections when possible."
 
-	userMessage := fmt.Sprintf("%s\n\n%s", req.Question, contextBuilder.String())
+	userMessage := fmt.Sprintf("%s\n\n%s", req.Question, contextString)
 
 	messages := []llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: userMessage},
 	}
+
+	logger.InfoContext(ctx, "sending request to LLM",
+		"question", req.Question,
+		"system_prompt_length", len(systemPrompt),
+		"user_message_length", len(userMessage),
+		"total_context_length", len(contextString),
+	)
+	userMessagePreview := userMessage
+	if len(userMessagePreview) > 500 {
+		userMessagePreview = userMessagePreview[:500] + "..."
+	}
+	logger.DebugContext(ctx, "LLM messages", "system_prompt", systemPrompt, "user_message_preview", userMessagePreview)
 
 	// Call LLM
 	answer, err := e.llmClient.ChatWithMessages(ctx, messages, llm.ChatParams{
@@ -253,6 +295,9 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		logger.ErrorContext(ctx, "failed to get LLM response", "error", err)
 		return AskResponse{}, fmt.Errorf("failed to get LLM response: %w", err)
 	}
+
+	logger.InfoContext(ctx, "received LLM response", "answer_length", len(answer))
+	logger.DebugContext(ctx, "LLM answer", "answer", answer)
 
 	// Build references from search results
 	references := make([]Reference, 0, len(chunks))

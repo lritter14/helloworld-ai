@@ -8,6 +8,7 @@ import (
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/text"
 )
 
@@ -24,7 +25,9 @@ type GoldmarkChunker struct {
 // NewGoldmarkChunker creates a new goldmark chunker.
 func NewGoldmarkChunker() *GoldmarkChunker {
 	return &GoldmarkChunker{
-		parser: goldmark.New(),
+		parser: goldmark.New(
+			goldmark.WithExtensions(extension.Table),
+		),
 	}
 }
 
@@ -238,6 +241,38 @@ func (c *GoldmarkChunker) buildChunks(doc ast.Node, content []byte, docTitle str
 			return ast.WalkContinue, nil
 
 		default:
+			// Check if this is a table-related node by checking the node kind name
+			// Table extension nodes will have kind names containing "Table"
+			kindName := n.Kind().String()
+			if strings.Contains(kindName, "Table") {
+				if currentChunk == nil {
+					return ast.WalkContinue, nil
+				}
+
+				// Add newline before table
+				if strings.Contains(kindName, "Table") && !strings.Contains(kindName, "TableRow") && !strings.Contains(kindName, "TableCell") && !strings.Contains(kindName, "TableHeader") {
+					if len(currentChunk.Text) > 0 && !strings.HasSuffix(currentChunk.Text, "\n") {
+						currentChunk.Text += "\n"
+					}
+				}
+
+				// Handle table rows - add newline before each row and extract cell content
+				if strings.Contains(kindName, "TableRow") || strings.Contains(kindName, "TableHeader") {
+					if len(currentChunk.Text) > 0 && !strings.HasSuffix(currentChunk.Text, "\n") {
+						currentChunk.Text += "\n"
+					}
+					// Extract row content by walking children (cells)
+					rowText := extractTableRowText(n, content)
+					currentChunk.Text += rowText
+					currentChunk.Text += "\n"
+					return ast.WalkSkipChildren, nil // We've already extracted the row content
+				}
+
+				// Skip TableCell nodes - they're handled by extractTableRowText when processing rows
+				if strings.Contains(kindName, "TableCell") {
+					return ast.WalkSkipChildren, nil
+				}
+			}
 			// For other nodes, continue walking to collect text content
 			return ast.WalkContinue, nil
 		}
@@ -307,8 +342,36 @@ func extractTextFromNode(n ast.Node, content []byte) string {
 	return strings.TrimSpace(textBuilder.String())
 }
 
+// extractTableRowText extracts text from a table row, formatting cells with pipe separators.
+func extractTableRowText(row ast.Node, content []byte) string {
+	var rowBuilder strings.Builder
+	cellCount := 0
+
+	_ = ast.Walk(row, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+
+		kindName := node.Kind().String()
+		if strings.Contains(kindName, "TableCell") {
+			cellText := extractTextFromNode(node, content)
+			cellText = strings.TrimSpace(cellText)
+			if cellCount > 0 {
+				rowBuilder.WriteString(" | ")
+			}
+			rowBuilder.WriteString(cellText)
+			cellCount++
+			return ast.WalkSkipChildren, nil // Already extracted cell content
+		}
+		return ast.WalkContinue, nil
+	})
+
+	return rowBuilder.String()
+}
+
 // applySizeConstraints applies min/max size constraints to chunks.
 // - Merge chunks smaller than minChunkSize with the next chunk
+// - Merge chunks with the same heading path (helps with content before headings)
 // - Split chunks larger than maxChunkSize (prefer heading boundaries, but split if needed)
 func (c *GoldmarkChunker) applySizeConstraints(chunks []Chunk) []Chunk {
 	if len(chunks) == 0 {
@@ -320,6 +383,26 @@ func (c *GoldmarkChunker) applySizeConstraints(chunks []Chunk) []Chunk {
 
 	for i < len(chunks) {
 		current := chunks[i]
+
+		// First, try to merge chunks with the same heading path
+		// This helps when content appears before a heading (like descriptions before tables)
+		if i+1 < len(chunks) {
+			next := chunks[i+1]
+			if current.HeadingPath == next.HeadingPath && current.HeadingPath != "" {
+				// Same heading path - merge them
+				merged := Chunk{
+					Index:       current.Index,
+					HeadingPath: current.HeadingPath,
+					Text:        current.Text + "\n\n" + next.Text,
+				}
+
+				// If merged chunk is still reasonable, use it
+				if len(merged.Text) <= maxChunkSize {
+					current = merged
+					i++ // Skip next chunk since we merged it
+				}
+			}
+		}
 
 		// If chunk is too small, try to merge with next
 		if len(current.Text) < minChunkSize && i+1 < len(chunks) {
@@ -403,4 +486,3 @@ func (c *GoldmarkChunker) splitChunk(chunk Chunk) []Chunk {
 
 	return splits
 }
-
