@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds all configuration for the application.
@@ -25,7 +27,31 @@ type Config struct {
 
 // Load reads configuration from environment variables and returns a Config struct.
 // It applies defaults for optional fields and validates required fields.
+// If a .env file exists in the current directory or project root, it will be loaded automatically.
+// Environment variables already set take precedence over .env file values.
 func Load() (*Config, error) {
+	// Try to load .env file (ignore error if it doesn't exist)
+	// Check current directory first, then walk up to find project root (where go.mod is)
+	_ = godotenv.Load() // Try current directory
+	
+	// Try to find project root by looking for go.mod
+	wd, err := os.Getwd()
+	if err == nil {
+		dir := wd
+		for i := 0; i < 5; i++ { // Limit search depth
+			envPath := filepath.Join(dir, ".env")
+			if _, err := os.Stat(envPath); err == nil {
+				_ = godotenv.Load(envPath)
+				break
+			}
+			parent := filepath.Dir(dir)
+			if parent == dir {
+				break // Reached filesystem root
+			}
+			dir = parent
+		}
+	}
+
 	llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8080")
 	llmModelName := getEnv("LLM_MODEL", "local-model")
 	

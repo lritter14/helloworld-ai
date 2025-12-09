@@ -197,7 +197,7 @@ func (s *QdrantStore) Delete(ctx context.Context, collection string, ids []strin
 
 	_, err := s.client.Delete(ctx, &qdrant.DeletePoints{
 		CollectionName: collection,
-		Points:        qdrant.NewPointsSelector(qdrantIDs...),
+		Points:         qdrant.NewPointsSelector(qdrantIDs...),
 	})
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to delete points", "collection", collection, "count", len(ids), "error", err)

@@ -11,6 +11,7 @@ import (
 	"helloworld-ai/internal/llm"
 	"helloworld-ai/internal/service"
 	"helloworld-ai/internal/storage"
+	"helloworld-ai/internal/vault"
 	"helloworld-ai/internal/vectorstore"
 )
 
@@ -36,16 +37,23 @@ func main() {
 	}
 	log.Printf("Database initialized at %s", cfg.DBPath)
 
-	// Create repository instances (ready for Phase 5)
+	// Create repository instances
 	vaultRepo := storage.NewVaultRepo(db)
 	noteRepo := storage.NewNoteRepo(db)
 	chunkRepo := storage.NewChunkRepo(db)
-	_ = vaultRepo // Will be used in Phase 5
-	_ = noteRepo  // Will be used in Phase 5
-	_ = chunkRepo // Will be used in Phase 5
 
 	// Initialize Qdrant vector store
 	ctx := context.Background()
+
+	// Initialize vault manager
+	vaultManager, err := vault.NewManager(ctx, vaultRepo, cfg.VaultPersonalPath, cfg.VaultWorkPath)
+	if err != nil {
+		log.Fatalf("Failed to initialize vault manager: %v", err)
+	}
+	log.Printf("Vault manager initialized (personal: %s, work: %s)", cfg.VaultPersonalPath, cfg.VaultWorkPath)
+	_ = vaultManager // Will be used in Phase 6 (indexer)
+	_ = noteRepo     // Will be used in Phase 6 (indexer)
+	_ = chunkRepo    // Will be used in Phase 6 (indexer)
 	vectorStore, err := vectorstore.NewQdrantStore(cfg.QdrantURL)
 	if err != nil {
 		log.Fatalf("Failed to create Qdrant client: %v", err)

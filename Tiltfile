@@ -1,22 +1,14 @@
+# pyright: reportUndefinedVariable=false, reportUnboundVariable=false
 # Tiltfile for helloworld-ai
 # Manages: llama.cpp server and API server
 
-# Load configuration from .env file
-load_dotenv()
-
-# Configuration (read from .env file with defaults)
+# Configuration (read from environment variables with defaults)
+# Note: The Go service automatically loads .env files via the config package,
+# so we only need to read env vars here for Tilt-specific resources (llama-server).
 llama_server_path = os.getenv("LLAMA_SERVER_PATH", "../llama.cpp/build/bin/llama-server")
 llama_model_path = os.getenv("LLAMA_MODEL_PATH", "../llama.cpp/models/llama-3-8b-instruct-q4_k_m.gguf")
 llama_port = int(os.getenv("LLAMA_PORT", "8080"))
 api_port = int(os.getenv("API_PORT", "9000"))
-
-# Environment variables
-llm_base_url = os.getenv("LLM_BASE_URL", "http://localhost:%d" % llama_port)
-llm_api_key = os.getenv("LLM_API_KEY", "dummy-key")
-llm_model = os.getenv("LLM_MODEL", "local-model")
-qdrant_vector_size = os.getenv("QDRANT_VECTOR_SIZE", "4096")  # llama-3-8b-instruct embedding size
-vault_personal_path = os.getenv("VAULT_PERSONAL_PATH", "./vaults/personal")
-vault_work_path = os.getenv("VAULT_WORK_PATH", "./vaults/work")
 
 # ============================================================================
 # Qdrant Vector Database (Infrastructure Dependency)
@@ -96,30 +88,11 @@ local_resource(
     serve_cmd=[
         "bash", "-c",
         """
-        export LLM_BASE_URL="%s"
-        export LLM_API_KEY="%s"
-        export LLM_MODEL="%s"
-        export EMBEDDING_BASE_URL="%s"
-        export EMBEDDING_MODEL_NAME="%s"
-        export VAULT_PERSONAL_PATH="%s"
-        export VAULT_WORK_PATH="%s"
+        # Go service automatically loads .env file via config package
+        # Only set QDRANT_URL here since it's Tilt-specific (localhost)
         export QDRANT_URL="http://localhost:6333"
-        export QDRANT_COLLECTION="notes"
-        export QDRANT_VECTOR_SIZE="%s"
-        export API_PORT="%s"
-        export DB_PATH="./data/helloworld-ai.db"
         exec go run ./cmd/api
-        """ % (
-            llm_base_url,
-            llm_api_key,
-            llm_model,
-            llm_base_url,
-            llm_model,
-            vault_personal_path,
-            vault_work_path,
-            qdrant_vector_size,
-            str(api_port),
-        )
+        """,
     ],
     deps=[
         "./cmd/api",
@@ -140,4 +113,3 @@ local_resource(
         period_secs=3,
     ),
 )
-

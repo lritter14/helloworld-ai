@@ -29,7 +29,7 @@ The application consists of a single binary:
 
 ### Environment File (.env)
 
-The project uses a `.env` file for configuration when using Tilt. Create a `.env` file in the project root with the following variables:
+The project automatically loads configuration from a `.env` file in the project root. The Go service reads `.env` files automatically, so you can run `go run ./cmd/api` directly without manually exporting environment variables. Create a `.env` file in the project root with the following variables:
 
 ```bash
 # llama.cpp Server Configuration
@@ -146,7 +146,7 @@ When running the API server directly (not via Tilt), you can set these environme
 - `QDRANT_COLLECTION` - Qdrant collection name (default: `notes`)
 - `API_PORT` - Port for API server (default: `9000`)
 
-**Note:** When using Tilt, configuration is read from the `.env` file instead of environment variables.
+**Note:** The Go service automatically loads `.env` files from the project root. Environment variables take precedence over `.env` file values if both are set. When using Tilt, the `.env` file is automatically loaded by the Go service.
 
 ## Building
 
@@ -224,10 +224,12 @@ helloworld-ai/
 ├── cmd/
 │   └── api/          # API server binary (serves API and web UI)
 ├── internal/
+│   ├── config/       # Configuration loading (.env support)
 │   ├── handlers/     # HTTP handlers (ingress layer)
 │   ├── service/      # Business logic (service layer)
 │   ├── storage/      # Database operations (storage layer)
 │   ├── vectorstore/  # Vector database operations (Qdrant)
+│   ├── vault/        # Vault manager and file scanner
 │   └── llm/          # LLM and embeddings clients (external service layer)
 ├── index.html        # Web UI (embedded in binary)
 └── Makefile
@@ -235,10 +237,12 @@ helloworld-ai/
 
 ## Architecture Layers
 
+- **Configuration Layer** (`internal/config`) - Environment variable and `.env` file loading
 - **Ingress Layer** (`internal/handlers`) - HTTP request/response handling
 - **Service Layer** (`internal/service`) - Business logic and domain models
 - **Storage Layer** (`internal/storage`) - Database operations and repositories (SQLite)
 - **Vector Store Layer** (`internal/vectorstore`) - Vector database operations (Qdrant)
+- **Vault Layer** (`internal/vault`) - Vault management and file scanning
 - **External Service Layer** (`internal/llm`) - llama.cpp API clients (chat and embeddings)
 
 See `AGENTS.md` for detailed architecture guidelines and coding standards.

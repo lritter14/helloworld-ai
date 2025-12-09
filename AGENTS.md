@@ -65,7 +65,35 @@ Services follow a distinct layered architecture pattern that promotes separation
 - `Delete` - Remove points by IDs
 - `EnsureCollection` - Create collection if missing, validate vector size if exists
 
-### 1.3 Service Layer (`internal/service`)
+### 1.3 Vault Layer (`internal/vault`)
+
+**Purpose:** Manage vault configuration and scan markdown files from Obsidian vaults.
+
+**Responsibilities:**
+
+- Vault initialization and caching
+- File system scanning for markdown files
+- Path resolution (absolute/relative path conversion)
+- Vault metadata management
+
+**Guidelines:**
+
+- Cache vaults in memory for efficient lookup
+- Use `filepath` package for cross-platform path operations
+- Skip `.obsidian` directory during scanning
+- Continue scanning other vaults if one fails
+- Support context cancellation for long-running scans
+
+**Key Features:**
+
+- `NewManager` - Initialize vault manager with personal and work vaults
+- `VaultByName` - Lookup vault by name (O(1) from cache)
+- `AbsPath` - Convert vault ID + relative path to absolute path
+- `ScanAll` - Discover all `.md` files across all vaults
+
+**See:** `internal/vault/AGENTS.md` for detailed patterns.
+
+### 1.4 Service Layer (`internal/service`)
 
 **Purpose:** Contain all business logic and orchestrate operations between layers.
 
@@ -83,7 +111,7 @@ Services follow a distinct layered architecture pattern that promotes separation
 - Use dependency injection for testability (using interfaces)
 - Maintain clear boundaries with other layers
 
-### 1.4 Ingress Layer (`internal/handlers`)
+### 1.5 Ingress Layer (`internal/handlers`)
 
 **Purpose:** Handle protocol-specific communication and translate between external APIs and internal service calls.
 
@@ -319,7 +347,9 @@ func WrapError(err error, msg string) error {
 
 ### 8.2 Tilt Configuration
 
-When developing with Tilt, configuration values are stored in `.env` file at the project root. The Tiltfile automatically loads these values using `load_dotenv()`. This allows for easy local customization without modifying the Tiltfile.
+When developing with Tilt, configuration values are stored in `.env` file at the project root. The Go service automatically loads `.env` files, so the Tiltfile no longer needs to parse them. This allows for easy local customization without modifying the Tiltfile.
+
+**Note:** The Tiltfile has been simplified to rely on the Go service's automatic `.env` loading. Only Tilt-specific configuration (like llama-server paths) is read from environment variables in the Tiltfile.
 
 ## 9. Dependency Management
 
@@ -393,14 +423,18 @@ When developing with Tilt, configuration values are stored in `.env` file at the
 - **Chunker:** Use `github.com/yuin/goldmark` with `goldmark/ast` for markdown parsing
 - **Chunking Strategy:** Chunk by heading hierarchy, min 50 chars, max 2000 chars
 - **Default K Value:** Default `K = 5` chunks for RAG queries, max `K = 20`
+- **.env Loading:** Use `github.com/joho/godotenv` for automatic `.env` file loading
+- **Vault Scanning:** Skip `.obsidian` directory, scan only `.md` files
 
 ### Environment Variables
 
 **For Tilt Development:**
 
-Configuration is managed via `.env` file in the project root. The Tiltfile reads these values automatically.
+Configuration is managed via `.env` file in the project root. The Go service automatically loads `.env` files, so configuration works the same whether running via Tilt or directly.
 
 **For Direct API Server Execution:**
+
+The Go service automatically loads `.env` files from the project root. You can run `go run ./cmd/api` directly without manually exporting environment variables. Environment variables take precedence over `.env` file values if both are set.
 
 **Required:**
 
@@ -426,6 +460,7 @@ For detailed patterns specific to each layer, see:
 - **Service:** `internal/service/AGENTS.md` - Business logic, domain errors, validation
 - **Storage:** `internal/storage/AGENTS.md` - Repository pattern, database operations
 - **Vector Store:** `internal/vectorstore/AGENTS.md` - Vector database operations, semantic search
+- **Vault:** `internal/vault/AGENTS.md` - Vault management and file scanning
 - **LLM:** `internal/llm/AGENTS.md` - External service client patterns (chat and embeddings)
 - **HTTP:** `internal/http/AGENTS.md` - Middleware, router setup
-- **Config:** `internal/config/AGENTS.md` - Configuration patterns
+- **Config:** `internal/config/AGENTS.md` - Configuration patterns and .env loading

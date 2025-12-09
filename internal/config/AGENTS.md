@@ -4,8 +4,31 @@ Configuration loading and validation patterns.
 
 ## Load Pattern
 
+The `Load()` function automatically loads `.env` files from the project root, then reads environment variables. Environment variables take precedence over `.env` file values.
+
 ```go
 func Load() (*Config, error) {
+    // Automatically load .env file (ignores error if not found)
+    _ = godotenv.Load() // Try current directory
+    
+    // Try to find project root by looking for go.mod
+    wd, err := os.Getwd()
+    if err == nil {
+        dir := wd
+        for i := 0; i < 5; i++ { // Limit search depth
+            envPath := filepath.Join(dir, ".env")
+            if _, err := os.Stat(envPath); err == nil {
+                _ = godotenv.Load(envPath)
+                break
+            }
+            parent := filepath.Dir(dir)
+            if parent == dir {
+                break // Reached filesystem root
+            }
+            dir = parent
+        }
+    }
+    
     llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8080")
     llmModelName := getEnv("LLM_MODEL", "local-model")
     
@@ -31,6 +54,17 @@ func Load() (*Config, error) {
     return cfg, nil
 }
 ```
+
+## .env File Support
+
+The config package automatically loads `.env` files using `github.com/joho/godotenv`:
+
+- **Search Order:** Current directory → project root (where `go.mod` is)
+- **Priority:** Environment variables > `.env` file values
+- **Silent Failure:** If `.env` doesn't exist, continues with environment variables only
+- **No Dependencies:** Works when running `go run ./cmd/api` directly (no Tilt required)
+
+## Environment Helper
 
 ## Environment Helper
 
@@ -82,8 +116,10 @@ if vectorSize <= 0 {
 
 ## Rules
 
-- Validate required fields at startup
-- Provide sensible defaults (embeddings default to LLM settings)
-- Handle type conversion with errors
-- Create necessary directories (e.g., data directory)
-- Return clear error messages
+- **Automatic .env Loading:** Search for `.env` file in project root automatically
+- **Environment Variable Priority:** Environment variables override `.env` file values
+- **Validate Required Fields:** Fail fast at startup with clear error messages
+- **Sensible Defaults:** Embeddings default to LLM settings when not specified
+- **Type Conversion:** Handle type conversion with proper error messages
+- **Directory Creation:** Create necessary directories (e.g., data directory)
+- **Cross-platform:** Use `filepath` package for path operations

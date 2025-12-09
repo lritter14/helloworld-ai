@@ -14,7 +14,7 @@ This plan outlines the implementation of a RAG (Retrieval-Augmented Generation) 
 
 ✅ **Completed:**
 - **Phase 1:** Basic HTTP server with routing (`cmd/api/main.go`)
-- **Phase 1:** Config package (`internal/config/config.go`) - loads env vars with validation
+- **Phase 1:** Config package (`internal/config/config.go`) - loads env vars with validation and automatic `.env` file loading
 - **Phase 1:** HTTP router extracted to `internal/http/router.go` using chi router
 - **Phase 1:** CORS middleware extracted to `internal/http/middleware.go`
 - **Phase 1:** Embedded HTML UI with streaming chat interface (`cmd/api/index.html`)
@@ -31,13 +31,17 @@ This plan outlines the implementation of a RAG (Retrieval-Augmented Generation) 
 - **Phase 3:** LLM types (`internal/llm/types.go`) - Message and ChatParams types
 - **Phase 3:** Extended LLM client (`internal/llm/client.go`) - ChatWithMessages method for structured messages
 - **Phase 3:** Embeddings client (`internal/llm/embeddings.go`) - EmbedTexts method with vector size validation
+- **Phase 4:** Qdrant vector store interface (`internal/vectorstore/interface.go`)
+- **Phase 4:** Qdrant client implementation (`internal/vectorstore/qdrant.go`) - Upsert, Search, Delete, EnsureCollection
+- **Phase 4:** Qdrant integration in `main.go` with collection initialization and embedding validation
+- **Phase 5:** Vault manager (`internal/vault/manager.go`) - Vault initialization, caching, path resolution
+- **Phase 5:** Vault scanner (`internal/vault/scanner.go`) - File system scanning for markdown files
+- **Phase 5:** Vault manager integration in `main.go`
 
 ❌ **Remaining:**
-- Qdrant vector store integration
-- Vault manager and scanner
-- Markdown chunker
-- Indexing pipeline
-- RAG engine
+- Markdown chunker (`internal/indexer/chunker.go`)
+- Indexing pipeline (`internal/indexer/pipeline.go`)
+- RAG engine (`internal/rag/engine.go`)
 - `/api/v1/ask` endpoint (RAG-powered Q&A)
 - UI updates for RAG (vault selection, references display)
 
@@ -430,6 +434,9 @@ type Engine interface {
        * `API_PORT` (default: `"9000"`, see Section 0.18)
      * ✅ Creates `./data` directory if it doesn't exist (for DB).
      * ✅ Provides `func Load() (*Config, error)` that validates required fields.
+     * ✅ **Added:** Automatic `.env` file loading using `github.com/joho/godotenv`.
+     * ✅ **Added:** Searches project root for `.env` files automatically.
+     * ✅ **Added:** Environment variables take precedence over `.env` file values.
 
 2. **HTTP router**
 
@@ -565,11 +572,11 @@ type Engine interface {
 
 **Goal:** Working `VectorStore` backed by Qdrant.
 
-**Status:** ❌ Not started - Vector store interface and Qdrant implementation needed.
+**Status:** ✅ **COMPLETE** - Vector store interface and Qdrant implementation completed and integrated.
 
 1. **Vector store interface**
 
-   * [ ] `internal/vectorstore/interface.go`:
+   * [x] `internal/vectorstore/interface.go`:
 
      * Define `VectorStore` interface per Section 3.2:
        * `Point` struct with `ID string`, `Vec []float32`, `Meta map[string]any`
@@ -578,91 +585,91 @@ type Engine interface {
          * `Upsert(ctx context.Context, collection string, points []Point) error`
          * `Search(ctx context.Context, collection string, query []float32, k int, filters map[string]any) ([]SearchResult, error)`
          * `Delete(ctx context.Context, collection string, ids []string) error`
-     * Place interface in consuming package (per Section 2.2 - consumer interface model).
+     * ✅ Place interface in consuming package (per Section 2.2 - consumer interface model).
 
 2. **Qdrant client implementation**
 
-   * [ ] `internal/vectorstore/qdrant.go`:
+   * [x] `internal/vectorstore/qdrant.go`:
 
-     * Import `github.com/qdrant/go-client/qdrant` (see Section 0.3).
-     * `QdrantStore` struct:
-       * Holds `client *qdrant.Client` (private field).
-       * Constructor: `NewQdrantStore(url string) (*QdrantStore, error)`:
-         * Parse URL to extract host and port (default port 6334 for gRPC).
-         * Create client using `qdrant.NewClient(&qdrant.Config{Host: host, Port: port})`.
-         * Return error if client creation fails.
-     * Implement `Upsert(ctx, collection, points)`:
-       * Convert `[]Point` to `[]*qdrant.PointStruct`:
-         * Use `qdrant.NewIDStr(point.ID)` for string IDs (UUIDs).
-         * Use `qdrant.NewVectors(point.Vec...)` to convert `[]float32` to Qdrant vectors.
-         * Convert `point.Meta` to Qdrant payload using `qdrant.NewValueMap(point.Meta)`.
-       * Call `client.Upsert(ctx, &qdrant.UpsertPoints{CollectionName: collection, Points: ...})`.
-       * Return error if upsert fails.
-     * Implement `Search(ctx, collection, query, k, filters)`:
-       * Build Qdrant filter from `filters map[string]any`:
-         * If `vault_id` present, add `Must` condition with `qdrant.NewMatch("vault_id", vaultID)`.
-         * If `folder` present, use prefix matching (see Section 0.14):
-           * Use `qdrant.NewMatchText` or build filter with prefix condition.
-           * Note: Qdrant supports `match` with `text` for prefix matching.
-         * Combine multiple filters with `Must` array.
-       * Call `client.Search(ctx, &qdrant.SearchPoints{CollectionName: collection, Vector: query, Limit: uint64(k), Filter: ...})`.
-       * Convert results to `[]SearchResult`:
-         * Extract `PointID` from result ID (use `result.Id.GetStringValue()`).
-         * Extract `Score` from `result.Score`.
-         * Extract `Meta` from `result.Payload` (convert Qdrant value map to `map[string]any`).
-       * Return error if search fails.
-     * Implement `Delete(ctx, collection, ids)`:
-       * Convert `[]string` to `[]*qdrant.PointId`:
-         * Use `qdrant.NewIDStr(id)` for each ID.
-       * Call `client.Delete(ctx, &qdrant.DeletePoints{CollectionName: collection, Points: ids})`.
-       * Return error if delete fails.
-     * Error handling:
-       * Wrap Qdrant errors with context using `fmt.Errorf("...: %w", err)`.
-       * Log errors using structured logging (extract logger from context).
+     * ✅ Import `github.com/qdrant/go-client/qdrant` (see Section 0.3).
+     * ✅ `QdrantStore` struct:
+       * ✅ Holds `client *qdrant.Client` (private field).
+       * ✅ Constructor: `NewQdrantStore(url string) (*QdrantStore, error)`:
+         * ✅ Parse URL to extract host and port (default port 6334 for gRPC).
+         * ✅ Create client using `qdrant.NewClient(&qdrant.Config{Host: host, Port: port})`.
+         * ✅ Return error if client creation fails.
+     * ✅ Implement `Upsert(ctx, collection, points)`:
+       * ✅ Convert `[]Point` to `[]*qdrant.PointStruct`:
+         * ✅ Use `qdrant.NewIDStr(point.ID)` for string IDs (UUIDs).
+         * ✅ Use `qdrant.NewVectors(point.Vec...)` to convert `[]float32` to Qdrant vectors.
+         * ✅ Convert `point.Meta` to Qdrant payload using `qdrant.NewValueMap(point.Meta)`.
+       * ✅ Call `client.Upsert(ctx, &qdrant.UpsertPoints{CollectionName: collection, Points: ...})`.
+       * ✅ Return error if upsert fails.
+     * ✅ Implement `Search(ctx, collection, query, k, filters)`:
+       * ✅ Build Qdrant filter from `filters map[string]any`:
+         * ✅ If `vault_id` present, add `Must` condition with `qdrant.NewMatch("vault_id", vaultID)`.
+         * ✅ If `folder` present, use prefix matching (see Section 0.14):
+           * ✅ Use `qdrant.NewMatchText` or build filter with prefix condition.
+           * ✅ Note: Qdrant supports `match` with `text` for prefix matching.
+         * ✅ Combine multiple filters with `Must` array.
+       * ✅ Call `client.Search(ctx, &qdrant.SearchPoints{CollectionName: collection, Vector: query, Limit: uint64(k), Filter: ...})`.
+       * ✅ Convert results to `[]SearchResult`:
+         * ✅ Extract `PointID` from result ID (use `result.Id.GetStringValue()`).
+         * ✅ Extract `Score` from `result.Score`.
+         * ✅ Extract `Meta` from `result.Payload` (convert Qdrant value map to `map[string]any`).
+       * ✅ Return error if search fails.
+     * ✅ Implement `Delete(ctx, collection, ids)`:
+       * ✅ Convert `[]string` to `[]*qdrant.PointId`:
+         * ✅ Use `qdrant.NewIDStr(id)` for each ID.
+       * ✅ Call `client.Delete(ctx, &qdrant.DeletePoints{CollectionName: collection, Points: ids})`.
+       * ✅ Return error if delete fails.
+     * ✅ Error handling:
+       * ✅ Wrap Qdrant errors with context using `fmt.Errorf("...: %w", err)`.
+       * ✅ Log errors using structured logging (extract logger from context).
 
 3. **Collection initialization**
 
-   * [ ] `internal/vectorstore/qdrant.go` - Add collection management:
+   * [x] `internal/vectorstore/qdrant.go` - Add collection management:
 
-     * `EnsureCollection(ctx context.Context, collection string, vectorSize int) error`:
-       * Check if collection exists using `client.GetCollectionInfo(ctx, &qdrant.GetCollectionInfo{CollectionName: collection})`.
-       * If collection doesn't exist (check for specific error or nil result):
-         * Create collection using `client.CreateCollection(ctx, &qdrant.CreateCollection{...})`:
-           * `CollectionName: collection`
-           * `VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{Size: uint64(vectorSize), Distance: qdrant.Distance_Cosine})`
-         * Return error if creation fails.
-       * If collection exists, validate vector size matches:
-         * Extract `vectorSize` from collection info.
-         * Compare with expected `vectorSize` parameter.
-         * Return error if mismatch (see Section 0.13).
-       * Return nil on success.
-     * Helper method: `CollectionExists(ctx context.Context, collection string) (bool, error)`:
-       * Call `GetCollectionInfo` and check for existence.
-       * Return `(true, nil)` if exists, `(false, nil)` if not found, error otherwise.
+     * ✅ `EnsureCollection(ctx context.Context, collection string, vectorSize int) error`:
+       * ✅ Check if collection exists using `client.GetCollectionInfo(ctx, &qdrant.GetCollectionInfo{CollectionName: collection})`.
+       * ✅ If collection doesn't exist (check for specific error or nil result):
+         * ✅ Create collection using `client.CreateCollection(ctx, &qdrant.CreateCollection{...})`:
+           * ✅ `CollectionName: collection`
+           * ✅ `VectorsConfig: qdrant.NewVectorsConfig(&qdrant.VectorParams{Size: uint64(vectorSize), Distance: qdrant.Distance_Cosine})`
+         * ✅ Return error if creation fails.
+       * ✅ If collection exists, validate vector size matches:
+         * ✅ Extract `vectorSize` from collection info.
+         * ✅ Compare with expected `vectorSize` parameter.
+         * ✅ Return error if mismatch (see Section 0.13).
+       * ✅ Return nil on success.
+     * ✅ Helper method: `CollectionExists(ctx context.Context, collection string) (bool, error)`:
+       * ✅ Call `GetCollectionInfo` and check for existence.
+       * ✅ Return `(true, nil)` if exists, `(false, nil)` if not found, error otherwise.
 
 4. **Integration**
 
-   * [ ] `cmd/api/main.go`:
+   * [x] `cmd/api/main.go`:
 
-     * After config loading, create Qdrant client:
-       * `vectorStore, err := vectorstore.NewQdrantStore(cfg.QdrantURL)`
-       * Handle error (log and exit if Qdrant unavailable).
-     * Initialize collection:
-       * `err = vectorStore.EnsureCollection(ctx, cfg.QdrantCollection, cfg.QdrantVectorSize)`
-       * Handle error (log and exit if collection setup fails).
-     * Validate embedding client vector size:
-       * Create test embedding client: `embedder := llm.NewEmbeddingsClient(cfg.EmbeddingBaseURL, cfg.LLMAPIKey, cfg.EmbeddingModelName, cfg.QdrantVectorSize)`
-       * Call `embedder.EmbedTexts(ctx, []string{"test"})` to validate vector size matches.
-       * This ensures fail-fast behavior per Section 0.13.
-     * Store `vectorStore` for later use in Phase 6 (indexer) and Phase 7 (RAG engine).
-     * **Note:** Vector store will be wired into indexer and RAG engine in later phases.
+     * ✅ After config loading, create Qdrant client:
+       * ✅ `vectorStore, err := vectorstore.NewQdrantStore(cfg.QdrantURL)`
+       * ✅ Handle error (log and exit if Qdrant unavailable).
+     * ✅ Initialize collection:
+       * ✅ `err = vectorStore.EnsureCollection(ctx, cfg.QdrantCollection, cfg.QdrantVectorSize)`
+       * ✅ Handle error (log and exit if collection setup fails).
+     * ✅ Validate embedding client vector size:
+       * ✅ Create test embedding client: `embedder := llm.NewEmbeddingsClient(cfg.EmbeddingBaseURL, cfg.LLMAPIKey, cfg.EmbeddingModelName, cfg.QdrantVectorSize)`
+       * ✅ Call `embedder.EmbedTexts(ctx, []string{"test"})` to validate vector size matches.
+       * ✅ This ensures fail-fast behavior per Section 0.13.
+     * ✅ Store `vectorStore` for later use in Phase 6 (indexer) and Phase 7 (RAG engine).
+     * ✅ **Note:** Vector store will be wired into indexer and RAG engine in later phases.
 
 5. **Dependencies**
 
-   * [ ] Add Qdrant Go client to `go.mod`:
+   * [x] Add Qdrant Go client to `go.mod`:
 
-     * Run `go get github.com/qdrant/go-client/qdrant`.
-     * Verify dependency added to `go.mod` and `go.sum`.
+     * ✅ Run `go get github.com/qdrant/go-client/qdrant`.
+     * ✅ Verify dependency added to `go.mod` and `go.sum`.
 
 ---
 
@@ -670,38 +677,42 @@ type Engine interface {
 
 **Goal:** Enumerate `.md` notes across both vaults with vault IDs/paths.
 
+**Status:** ✅ **COMPLETE** - Vault manager and scanner implemented and integrated.
+
 1. **Vault manager**
 
-   * [ ] `internal/vault/manager.go`:
+   * [x] `internal/vault/manager.go`:
 
-     * Holds DB + config.
-     * On init:
+     * ✅ Holds DB + config.
+     * ✅ On init:
 
-       * `GetOrCreateByName("personal", VAULT_PERSONAL_PATH)`
-       * `GetOrCreateByName("work", VAULT_WORK_PATH)`
-     * Provides:
+       * ✅ `GetOrCreateByName("personal", VAULT_PERSONAL_PATH)`
+       * ✅ `GetOrCreateByName("work", VAULT_WORK_PATH)`
+     * ✅ Provides:
 
-       * `VaultByName(name string) (storage.Vault, error)`
-       * `AbsPath(vaultID int, relPath string) string`
+       * ✅ `VaultByName(name string) (storage.VaultRecord, error)`
+       * ✅ `AbsPath(vaultID int, relPath string) string`
 
 2. **Scanner**
 
-   * [ ] `internal/vault/scanner.go`:
+   * [x] `internal/vault/scanner.go`:
 
-     ```go
-     type ScannedFile struct {
-         VaultID int
-         RelPath string
-         Folder  string
-         AbsPath string
-     }
+     * ✅ `ScannedFile` struct defined with `VaultID`, `RelPath`, `Folder`, `AbsPath` fields.
+     * ✅ `ScanAll(ctx context.Context) ([]ScannedFile, error)` method implemented.
 
-     func (m *Manager) ScanAll(ctx context.Context) ([]ScannedFile, error)
-     ```
+   * ✅ Walk each vault root, find `*.md` files.
+   * ✅ Compute `relPath` relative to vault root.
+   * ✅ Compute `folder` per Section 0.6 (path components except filename).
+   * ✅ Skip `.obsidian` directory during scanning.
+   * ✅ Handle context cancellation.
+   * ✅ Continue scanning other vaults if one fails (per Section 0.19).
 
-   * Walk each vault root, find `*.md` files.
-   * Compute `relPath` relative to vault root.
-   * Compute `folder` per Section 0.6 (path components except filename).
+3. **Integration**
+
+   * [x] `cmd/api/main.go`:
+     * ✅ Create vault manager after vaultRepo initialization.
+     * ✅ Initialize personal and work vaults.
+     * ✅ Store vaultManager for use in Phase 6 (indexer).
 
 ---
 
