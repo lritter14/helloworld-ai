@@ -109,7 +109,7 @@ Services follow a distinct layered architecture pattern that promotes separation
 **Guidelines:**
 
 - Use goldmark AST parsing for accurate heading detection
-- Chunk by heading boundaries with size constraints (min 50, max 2000 chars)
+- Chunk by heading boundaries with size constraints (min 50, max 1000 runes)
 - Extract title in order: H1 → H2 → filename
 - Use SHA256 hashing to skip unchanged files
 - Batch operations for efficiency (embeddings, Qdrant upserts)
@@ -665,7 +665,9 @@ _ = stats.MaxIdleClosed // Explicitly use variable
 - **UUID Generation:** Use `github.com/google/uuid` package, store as strings
 - **Qdrant Client:** Use `github.com/qdrant/go-client` (official Go client)
 - **Chunker:** Use `github.com/yuin/goldmark` with `goldmark/ast` for markdown parsing
-- **Chunking Strategy:** Chunk by heading hierarchy, min 50 chars, max 2000 chars
+- **Chunking Strategy:** Chunk by heading hierarchy, min 50 runes, max 1000 runes (measured in runes for token estimation)
+- **Embedding Model:** Uses `granite-embedding-278m-multilingual` with 512-token context limit (chunks exceeding limit are skipped)
+- **Separate Servers:** Chat and embeddings use separate llama.cpp servers (ports 8080 and 8081)
 - **Default K Value:** Default `K = 5` chunks for RAG queries, max `K = 20`
 - **.env Loading:** Use `github.com/joho/godotenv` for automatic `.env` file loading
 - **Vault Scanning:** Skip `.obsidian` directory, scan only `.md` files
@@ -688,13 +690,15 @@ The Go service automatically loads `.env` files from the project root. You can r
 
 **Optional (with defaults):**
 
-- `LLM_BASE_URL` - Base URL for llama.cpp server (default: `http://localhost:8080`)
+- `LLM_BASE_URL` - Base URL for llama.cpp chat server (default: `http://localhost:8080`)
 - `LLM_API_KEY` - API key (default: `dummy-key`)
-- `LLM_MODEL` - Model name for chat completions (default: `local-model`)
-- `EMBEDDING_BASE_URL` - Base URL for embeddings API (default: same as `LLM_BASE_URL`)
-- `EMBEDDING_MODEL_NAME` - Model name for embeddings (default: same as `LLM_MODEL`)
+- `LLM_MODEL` - Model name for chat completions (default: `Llama-3.1-8B-Instruct`)
+- `EMBEDDING_BASE_URL` - Base URL for embeddings API (default: `http://localhost:8081`)
+- `EMBEDDING_MODEL_NAME` - Model name for embeddings (default: `granite-embedding-278m-multilingual`)
 - `DB_PATH` - Path to SQLite database (default: `./data/helloworld-ai.db`)
 - `API_PORT` - Port for API server (default: `9000`)
+
+**Note:** Chat and embeddings use separate servers and models. The embedding model (`granite-embedding-278m-multilingual`) has a hard context size limit of 512 tokens. Chunks exceeding this limit are automatically skipped during indexing. The `QDRANT_VECTOR_SIZE` must match the output vector size of the embeddings model (typically 1024 for granite-embedding-278m-multilingual).
 
 ## Layer-Specific Documentation
 

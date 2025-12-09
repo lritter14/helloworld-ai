@@ -157,6 +157,36 @@ vectors, err := client.EmbedTexts(ctx, []string{"text1", "text2"})
 - Converts `[]float64` from JSON to `[]float32`
 - Returns error if vector size mismatch or empty input
 
+**Structured Error Handling:**
+
+The embeddings client returns structured errors for better error handling:
+
+```go
+type EmbeddingError struct {
+    StatusCode int
+    RawBody    string
+    LlamaError *LlamaError
+    Err        error
+}
+
+type LlamaError struct {
+    Error struct {
+        Code          int    `json:"code"`
+        Message       string `json:"message"`
+        Type          string `json:"type"`
+        NPromptTokens int    `json:"n_prompt_tokens"`
+        NCtx          int    `json:"n_ctx"`
+    } `json:"error"`
+}
+```
+
+**Context Size Limits:**
+
+- The embedding model (`granite-embedding-278m-multilingual`) has a hard context size limit of 512 tokens
+- Errors with type `"exceed_context_size_error"` indicate the input exceeded this limit
+- Use `IsExceedContextSizeError()` to check for context size errors
+- The indexer automatically skips chunks that exceed this limit
+
 ## Testing
 
 ### Test Patterns
@@ -219,3 +249,6 @@ _, _ = w.Write([]byte("error")) // Ignore error in test handler
 - Validate vector sizes in embeddings client
 - Keep backward compatibility (don't break existing `Chat` method)
 - Handle all error returns (use `_` for intentional ignores in tests)
+- Return structured errors (`EmbeddingError`) for better error handling
+- Support context size limit detection via `IsExceedContextSizeError()`
+- Parse structured error responses from llama.cpp API when available

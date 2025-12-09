@@ -122,10 +122,10 @@ func TestLoad(t *testing.T) {
 			wantErr: false,
 			checkConfig: func(cfg *Config) bool {
 				return cfg.LLMBaseURL == "http://localhost:8080" &&
-					cfg.LLMModelName == "local-model" &&
+					cfg.LLMModelName == "Llama-3.1-8B-Instruct" &&
 					cfg.LLMAPIKey == "dummy-key" &&
-					cfg.EmbeddingBaseURL == "http://localhost:8080" &&
-					cfg.EmbeddingModelName == "local-model" &&
+					cfg.EmbeddingBaseURL == "http://localhost:8081" &&
+					cfg.EmbeddingModelName == "granite-embedding-278m-multilingual" &&
 					cfg.DBPath == "./data/helloworld-ai.db" &&
 					cfg.QdrantURL == "http://localhost:6333" &&
 					cfg.QdrantCollection == "notes" &&
@@ -152,7 +152,7 @@ func TestLoad(t *testing.T) {
 			},
 		},
 		{
-			name: "embedding defaults to LLM values",
+			name: "embedding has separate defaults from LLM",
 			setupEnv: func(t *testing.T) {
 				setEnv("VAULT_PERSONAL_PATH", t.TempDir())
 				setEnv("VAULT_WORK_PATH", t.TempDir())
@@ -162,8 +162,11 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr: false,
 			checkConfig: func(cfg *Config) bool {
-				return cfg.EmbeddingBaseURL == "http://custom:9090" &&
-					cfg.EmbeddingModelName == "custom-model"
+				// Embeddings should have their own defaults, not inherit from LLM
+				return cfg.LLMBaseURL == "http://custom:9090" &&
+					cfg.LLMModelName == "custom-model" &&
+					cfg.EmbeddingBaseURL == "http://localhost:8081" &&
+					cfg.EmbeddingModelName == "granite-embedding-278m-multilingual"
 			},
 		},
 	}

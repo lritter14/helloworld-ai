@@ -47,6 +47,43 @@ type EmbeddingsResponse struct {
 	Data []EmbeddingData `json:"data"`
 }
 
+// LlamaError represents the structured error response from llama.cpp API.
+type LlamaError struct {
+	Error struct {
+		Code          int    `json:"code"`
+		Message       string `json:"message"`
+		Type          string `json:"type"`
+		NPromptTokens int    `json:"n_prompt_tokens"`
+		NCtx          int    `json:"n_ctx"`
+	} `json:"error"`
+}
+
+// EmbeddingError wraps an embedding API error with structured error information.
+type EmbeddingError struct {
+	StatusCode int
+	RawBody    string
+	LlamaError *LlamaError
+	Err        error
+}
+
+func (e *EmbeddingError) Error() string {
+	if e.LlamaError != nil {
+		return fmt.Sprintf("bad status %d: %s (type: %s, n_prompt_tokens: %d, n_ctx: %d)",
+			e.StatusCode, e.LlamaError.Error.Message, e.LlamaError.Error.Type,
+			e.LlamaError.Error.NPromptTokens, e.LlamaError.Error.NCtx)
+	}
+	return fmt.Sprintf("bad status %d: %s", e.StatusCode, e.RawBody)
+}
+
+func (e *EmbeddingError) Unwrap() error {
+	return e.Err
+}
+
+// IsExceedContextSizeError checks if the error is an exceed_context_size_error.
+func (e *EmbeddingError) IsExceedContextSizeError() bool {
+	return e.LlamaError != nil && e.LlamaError.Error.Type == "exceed_context_size_error"
+}
+
 // EmbedTexts generates embeddings for the given texts.
 // Returns a slice of float32 vectors, one per input text.
 // Validates that all returned vectors match the expected size.
@@ -85,7 +122,20 @@ func (c *EmbeddingsClient) EmbedTexts(ctx context.Context, texts []string) ([][]
 
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("bad status %d: %s", resp.StatusCode, string(raw))
+		rawStr := string(raw)
+
+		// Try to parse as structured error
+		var llamaErr LlamaError
+		embedErr := &EmbeddingError{
+			StatusCode: resp.StatusCode,
+			RawBody:    rawStr,
+		}
+
+		if err := json.Unmarshal(raw, &llamaErr); err == nil {
+			embedErr.LlamaError = &llamaErr
+		}
+
+		return nil, embedErr
 	}
 
 	var embeddingsResp EmbeddingsResponse

@@ -27,8 +27,9 @@ The `GoldmarkChunker` uses goldmark AST parsing to chunk markdown by heading hie
 - **Heading-based:** Each chunk starts at a heading and includes content until the next heading of equal or higher level
 - **First chunk:** Uses document title as heading path if no headings exist
 - **Size constraints:**
-  - Minimum: 50 characters (merge tiny chunks with next)
-  - Maximum: 2000 characters (split if exceeded, prefer heading boundaries)
+  - Minimum: 50 runes (merge tiny chunks with next)
+  - Maximum: 1000 runes (split if exceeded, prefer heading boundaries)
+  - Note: Size is measured in runes (not bytes) for consistency with embedding token estimation. The 1000-rune limit targets ~450 tokens to stay well under the 512-token embedding model limit.
 - **Heading path format:** `"# Heading1 > ## Heading2 > ### Heading3"` (uses `>` separator)
 
 ### Title Extraction
@@ -96,8 +97,11 @@ if err != nil {
 7. Upsert note record (generate UUID if new)
 8. If existing note, delete old chunks (SQLite + Qdrant)
 9. Generate embeddings for chunk texts in batches (with automatic retry on errors)
-10. Insert chunks into SQLite
-11. Upsert vectors to Qdrant with metadata
+   - Tracks chunk-to-embedding mapping to handle skipped chunks
+   - Chunks that exceed context size are skipped (not indexed)
+10. Insert chunks into SQLite (only chunks with embeddings)
+11. Upsert vectors to Qdrant with metadata (only chunks with embeddings)
+12. Log summary: total chunks, indexed chunks, skipped chunks
 
 ### Indexing All Vaults
 
@@ -150,15 +154,18 @@ The indexer generates embeddings in batches to avoid exceeding server limits:
 ### Batch Limits
 
 ```go
-const maxBatchCount = 5    // Max number of chunks per batch
-const maxBatchChars = 8000 // Max total characters per batch
+const maxBatchCount = 5     // Max number of chunks per batch
+const maxBatchChars = 1600   // Max total runes per batch (target ~350-400 tokens, ~4 chars/token)
 ```
+
+**Note:** Batch limits use rune counts (not byte counts) for better approximation of token counts. The embedding model has a context size limit of 512 tokens, so batch sizes are conservative to avoid exceeding this limit.
 
 ### Batch Building
 
-- Respects both count and character limits
-- Warns if single chunk exceeds character limit (still processes it)
+- Respects both count and rune limits (using `utf8.RuneCountInString`)
+- Warns if single chunk exceeds rune limit (still processes it)
 - Builds batches sequentially until all chunks are processed
+- Tracks chunk-to-embedding mapping to handle skipped chunks
 
 ### Automatic Retry with Batch Reduction
 
@@ -172,20 +179,27 @@ func (p *Pipeline) embedTextsWithRetry(ctx context.Context, texts []string,
 **Behavior:**
 
 1. Attempts to embed the batch
-2. If error contains "input is too large" or "too large to process":
-   - Logs warning with batch size
-   - Recursively splits batch in half
-   - Retries each half separately
-   - Combines results
-3. If single chunk still fails, returns error
-4. If non-size error, returns error immediately
+2. If error is a context size error (detected via structured error or string matching):
+   - For batches: Logs warning, recursively splits batch in half, retries each half
+   - For single chunks: Returns `ErrChunkSkipped` (chunk is skipped, not indexed)
+3. If non-size error, returns error immediately
 
 **Error Detection:**
 
-Checks for various error message patterns (case-insensitive):
-- "input is too large"
-- "too large to process"
-- "increase the physical batch size"
+- **Structured Error Parsing:** Uses `errors.As()` to check for `*llm.EmbeddingError` with `IsExceedContextSizeError()`
+- **Structured Error Details:** Logs `n_prompt_tokens` and `n_ctx` when available
+- **Fallback String Matching:** Checks for various error message patterns (case-insensitive):
+  - "input is too large"
+  - "too large to process"
+  - "increase the physical batch size"
+  - "exceed_context_size"
+  - "larger than the max context size"
+
+**Chunk Skipping:**
+
+- Single chunks that exceed the context size limit (512 tokens) are skipped with `ErrChunkSkipped`
+- Skipped chunks are logged with warnings but don't fail indexing
+- Only chunks with successful embeddings are stored in SQLite and Qdrant
 
 ## Integration Points
 
@@ -231,12 +245,15 @@ if err := indexerPipeline.IndexAll(ctx); err != nil {
 - **File read errors:** Log and continue with next file
 - **Chunking errors:** Return error (fails indexing for that file)
 - **Embedding errors:** Automatic batch size reduction and retry
-  - "Input too large" errors trigger automatic batch splitting
+  - Context size errors trigger automatic batch splitting
   - Recursively splits batches in half until successful or single chunk fails
-  - Logs warnings when batches are split
+  - Single chunks that exceed context size are skipped (not indexed) with warnings
+  - Logs warnings when batches are split or chunks are skipped
+  - Uses structured error parsing when available (`EmbeddingError`)
 - **Storage errors:** Return error (fails indexing for that file)
 - **IndexAll:** Logs errors but doesn't fail startup (per Section 0.19)
 - **Startup validation:** Embedding vector size mismatch fails startup immediately
+- **Chunk skipping:** Chunks that exceed the embedding model's context size limit (512 tokens) are automatically skipped
 
 ## Testing
 
@@ -307,14 +324,18 @@ logger := slog.New(slog.NewTextHandler(io.Discard, nil)) // Suppress logs in tes
 ## Rules
 
 - **Hash-based skipping:** Always check hash before re-indexing
-- **Batch operations:** Generate embeddings in batches respecting count and character limits
+- **Batch operations:** Generate embeddings in batches respecting count and rune limits
+- **Rune-based sizing:** Use `utf8.RuneCountInString()` for chunk and batch size calculations
 - **Automatic retry:** Use `embedTextsWithRetry` for automatic batch size reduction on errors
-- **Batch limits:** Respect both `maxBatchCount` (5) and `maxBatchChars` (8000) limits
+- **Batch limits:** Respect both `maxBatchCount` (5) and `maxBatchChars` (1600 runes) limits
+- **Chunk skipping:** Chunks that exceed context size limit are skipped (not indexed) with warnings
+- **Structured errors:** Use `errors.As()` to parse `EmbeddingError` for better error handling
+- **Chunk-to-embedding mapping:** Track which chunks have embeddings to handle skipped chunks
 - **UUID generation:** Use `uuid.New()` for note IDs and chunk IDs
 - **Context support:** All operations accept `context.Context` for cancellation
 - **Error wrapping:** Wrap errors with context using `fmt.Errorf("...: %w", err)`
 - **Logging:** Extract logger from context, fallback to default logger
-- **Log batch operations:** Log batch sizes and retry attempts for observability
+- **Log batch operations:** Log batch sizes, retry attempts, and skipped chunks for observability
 - **Test Isolation:** Use mocks for all dependencies
 - **Log Suppression:** Suppress log output during tests for cleaner test runs
 - **Startup validation:** Validate embedding vector size matches Qdrant collection (fail-fast)

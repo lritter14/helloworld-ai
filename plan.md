@@ -73,8 +73,9 @@ These decisions must be followed exactly to ensure consistent implementation:
 **Decision:** Chunk by heading hierarchy:
 - Each chunk starts at a heading (##, ###, etc.) and includes all content until the next heading of equal or higher level
 - First chunk (before any heading) uses the document title as heading path
-- Minimum chunk size: 50 characters (merge tiny chunks with next)
-- Maximum chunk size: 2000 characters (split if exceeded, but prefer heading boundaries)
+- Minimum chunk size: 50 runes (merge tiny chunks with next)
+- Maximum chunk size: 1000 runes (split if exceeded, but prefer heading boundaries)
+  - Note: Size is measured in runes (not bytes) for consistency with embedding token estimation. The 1000-rune limit targets ~450 tokens to stay well under the 512-token embedding model limit.
 - Heading path format: `"# Heading1 > ## Heading2 > ### Heading3"` (use `>` separator)
 
 ### 0.6 Folder Calculation
@@ -731,7 +732,7 @@ type Engine interface {
      * Use `github.com/yuin/goldmark` with AST parsing (see Section 0.4).
      * Implement chunking strategy per Section 0.5:
        * Chunk by heading hierarchy
-       * Min 50 chars, max 2000 chars per chunk
+       * Min 50 runes, max 1000 runes per chunk
        * Heading path format: `"# Heading1 > ## Heading2"`
      * ✅ Extract title per Section 0.7 (first # heading, or filename).
      * ✅ Return title and list of `Chunk`.

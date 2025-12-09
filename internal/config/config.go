@@ -53,14 +53,16 @@ func Load() (*Config, error) {
 	}
 
 	llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8080")
-	llmModelName := getEnv("LLM_MODEL", "local-model")
+	llmModelName := getEnv("LLM_MODEL", "Llama-3.1-8B-Instruct")
 
 	cfg := &Config{
 		LLMBaseURL:         llmBaseURL,
 		LLMModelName:       llmModelName,
 		LLMAPIKey:          getEnv("LLM_API_KEY", "dummy-key"),
-		EmbeddingBaseURL:   getEnv("EMBEDDING_BASE_URL", llmBaseURL),     // Default to same as LLM_BASE_URL
-		EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", llmModelName), // Default to same as LLM_MODEL
+		EmbeddingBaseURL:   getEnv("EMBEDDING_BASE_URL", "http://localhost:8081"), // Default to embeddings server
+		EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", "granite-embedding-278m-multilingual"), // Default to granite embeddings model
+		// Note: granite-embedding-278m-multilingual has n_ctx=512 tokens (hard limit enforced by model).
+		// The --ctx-size flag in llama.cpp is ignored; the model enforces 512 tokens maximum.
 		DBPath:             getEnv("DB_PATH", "./data/helloworld-ai.db"),
 		VaultPersonalPath:  getEnv("VAULT_PERSONAL_PATH", ""),
 		VaultWorkPath:      getEnv("VAULT_WORK_PATH", ""),
@@ -70,6 +72,11 @@ func Load() (*Config, error) {
 	}
 
 	// Parse QDRANT_VECTOR_SIZE
+	// Note: This must match the output vector size of the embeddings model.
+	// For granite-embedding-278m-multilingual, this is typically 1024 dimensions.
+	// Verify the actual output size by testing the model and update QDRANT_VECTOR_SIZE
+	// in your .env file accordingly. If the vector size changes, the Qdrant collection
+	// must be recreated.
 	vectorSizeStr := getEnv("QDRANT_VECTOR_SIZE", "")
 	if vectorSizeStr == "" {
 		return nil, fmt.Errorf("QDRANT_VECTOR_SIZE is required")

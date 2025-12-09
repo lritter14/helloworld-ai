@@ -30,14 +30,14 @@ func Load() (*Config, error) {
     }
     
     llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8080")
-    llmModelName := getEnv("LLM_MODEL", "local-model")
+    llmModelName := getEnv("LLM_MODEL", "Llama-3.1-8B-Instruct")
     
     cfg := &Config{
         LLMBaseURL:        llmBaseURL,
         LLMModelName:      llmModelName,
         LLMAPIKey:         getEnv("LLM_API_KEY", "dummy-key"),
-        EmbeddingBaseURL:  getEnv("EMBEDDING_BASE_URL", llmBaseURL),  // Defaults to LLM_BASE_URL
-        EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", llmModelName), // Defaults to LLM_MODEL
+        EmbeddingBaseURL:  getEnv("EMBEDDING_BASE_URL", "http://localhost:8081"),  // Defaults to embeddings server
+        EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", "granite-embedding-278m-multilingual"), // Defaults to granite embeddings model
         DBPath:            getEnv("DB_PATH", "./data/helloworld-ai.db"),
         VaultPersonalPath: getEnv("VAULT_PERSONAL_PATH", ""),
         VaultWorkPath:     getEnv("VAULT_WORK_PATH", ""),
@@ -102,8 +102,9 @@ if vectorSize <= 0 {
 - `LLMAPIKey` - API key for authentication
 
 **Embeddings Configuration:**
-- `EmbeddingBaseURL` - Base URL for embeddings API (defaults to `LLMBaseURL`)
-- `EmbeddingModelName` - Model name for embeddings (defaults to `LLMModelName`)
+- `EmbeddingBaseURL` - Base URL for embeddings API (default: `http://localhost:8081`)
+- `EmbeddingModelName` - Model name for embeddings (default: `granite-embedding-278m-multilingual`)
+- **Note:** The embedding model has a hard context size limit of 512 tokens. The `QDRANT_VECTOR_SIZE` must match the output vector size of the embeddings model (typically 1024 for granite-embedding-278m-multilingual).
 
 **Vector Store Configuration:**
 - `QdrantURL` - Qdrant server URL
@@ -169,9 +170,10 @@ setupEnv: func(t *testing.T) {
 - **Automatic .env Loading:** Search for `.env` file in project root automatically
 - **Environment Variable Priority:** Environment variables override `.env` file values
 - **Validate Required Fields:** Fail fast at startup with clear error messages
-- **Sensible Defaults:** Embeddings default to LLM settings when not specified
+- **Separate Embedding Defaults:** Embeddings have separate defaults (different server and model)
 - **Type Conversion:** Handle type conversion with proper error messages
 - **Directory Creation:** Create necessary directories (e.g., data directory)
 - **Cross-platform:** Use `filepath` package for path operations
 - **Test Isolation:** Use temporary directories and change working directory in tests
 - **Error Handling:** Use helper functions to ignore errors in test setup/cleanup
+- **Vector Size Validation:** `QDRANT_VECTOR_SIZE` must match the output vector size of the embeddings model

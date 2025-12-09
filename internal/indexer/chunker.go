@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
@@ -14,7 +15,7 @@ import (
 
 const (
 	minChunkSize = 50
-	maxChunkSize = 2000
+	maxChunkSize = 1000 // Max runes per chunk (targets ~450 tokens for 512-token embedding model)
 )
 
 // GoldmarkChunker chunks markdown content using goldmark AST parsing.
@@ -373,6 +374,7 @@ func extractTableRowText(row ast.Node, content []byte) string {
 // - Merge chunks smaller than minChunkSize with the next chunk
 // - Merge chunks with the same heading path (helps with content before headings)
 // - Split chunks larger than maxChunkSize (prefer heading boundaries, but split if needed)
+// Size is measured in runes (not bytes) for consistency with embedding token estimation.
 func (c *GoldmarkChunker) applySizeConstraints(chunks []Chunk) []Chunk {
 	if len(chunks) == 0 {
 		return chunks
@@ -383,6 +385,7 @@ func (c *GoldmarkChunker) applySizeConstraints(chunks []Chunk) []Chunk {
 
 	for i < len(chunks) {
 		current := chunks[i]
+		currentRunes := utf8.RuneCountInString(current.Text)
 
 		// First, try to merge chunks with the same heading path
 		// This helps when content appears before a heading (like descriptions before tables)
@@ -397,15 +400,16 @@ func (c *GoldmarkChunker) applySizeConstraints(chunks []Chunk) []Chunk {
 				}
 
 				// If merged chunk is still reasonable, use it
-				if len(merged.Text) <= maxChunkSize {
+				if utf8.RuneCountInString(merged.Text) <= maxChunkSize {
 					current = merged
+					currentRunes = utf8.RuneCountInString(current.Text)
 					i++ // Skip next chunk since we merged it
 				}
 			}
 		}
 
 		// If chunk is too small, try to merge with next
-		if len(current.Text) < minChunkSize && i+1 < len(chunks) {
+		if currentRunes < minChunkSize && i+1 < len(chunks) {
 			next := chunks[i+1]
 			merged := Chunk{
 				Index:       current.Index,
@@ -414,14 +418,15 @@ func (c *GoldmarkChunker) applySizeConstraints(chunks []Chunk) []Chunk {
 			}
 
 			// If merged chunk is still reasonable, use it
-			if len(merged.Text) <= maxChunkSize {
+			if utf8.RuneCountInString(merged.Text) <= maxChunkSize {
 				current = merged
+				currentRunes = utf8.RuneCountInString(current.Text)
 				i++ // Skip next chunk since we merged it
 			}
 		}
 
 		// If chunk is too large, split it
-		if len(current.Text) > maxChunkSize {
+		if currentRunes > maxChunkSize {
 			splitChunks := c.splitChunk(current)
 			result = append(result, splitChunks...)
 		} else {
@@ -441,43 +446,48 @@ func (c *GoldmarkChunker) applySizeConstraints(chunks []Chunk) []Chunk {
 
 // splitChunk splits a chunk that exceeds maxChunkSize.
 // Tries to split at paragraph boundaries, otherwise splits at sentence boundaries, otherwise hard split.
+// Size is measured in runes (not bytes) for consistency with embedding token estimation.
 func (c *GoldmarkChunker) splitChunk(chunk Chunk) []Chunk {
-	if len(chunk.Text) <= maxChunkSize {
+	chunkRunes := utf8.RuneCountInString(chunk.Text)
+	if chunkRunes <= maxChunkSize {
 		return []Chunk{chunk}
 	}
 
 	var splits []Chunk
 	text := chunk.Text
+	textRunes := []rune(text) // Convert to runes for proper indexing
 	start := 0
 	splitIndex := 0
 
-	for start < len(text) {
+	for start < len(textRunes) {
 		end := start + maxChunkSize
 
-		if end >= len(text) {
+		if end >= len(textRunes) {
 			// Last chunk
 			splits = append(splits, Chunk{
 				Index:       chunk.Index + splitIndex,
 				HeadingPath: chunk.HeadingPath,
-				Text:        text[start:],
+				Text:        string(textRunes[start:]),
 			})
 			break
 		}
 
 		// Try to find a good split point (paragraph boundary)
+		// Search in the rune slice, but convert back to string for boundary detection
+		searchText := string(textRunes[start:end])
 		splitPoint := end
-		if paragraphBoundary := strings.LastIndex(text[start:end], "\n\n"); paragraphBoundary != -1 {
+		if paragraphBoundary := strings.LastIndex(searchText, "\n\n"); paragraphBoundary != -1 {
 			splitPoint = start + paragraphBoundary + 2
-		} else if newlineBoundary := strings.LastIndex(text[start:end], "\n"); newlineBoundary != -1 {
+		} else if newlineBoundary := strings.LastIndex(searchText, "\n"); newlineBoundary != -1 {
 			splitPoint = start + newlineBoundary + 1
-		} else if sentenceBoundary := strings.LastIndex(text[start:end], ". "); sentenceBoundary != -1 {
+		} else if sentenceBoundary := strings.LastIndex(searchText, ". "); sentenceBoundary != -1 {
 			splitPoint = start + sentenceBoundary + 2
 		}
 
 		splits = append(splits, Chunk{
 			Index:       chunk.Index + splitIndex,
 			HeadingPath: chunk.HeadingPath,
-			Text:        text[start:splitPoint],
+			Text:        string(textRunes[start:splitPoint]),
 		})
 
 		start = splitPoint

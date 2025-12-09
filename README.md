@@ -32,21 +32,22 @@ The application consists of a single binary:
 The project automatically loads configuration from a `.env` file in the project root. The Go service reads `.env` files automatically, so you can run `go run ./cmd/api` directly without manually exporting environment variables. Create a `.env` file in the project root with the following variables:
 
 ```bash
-# llama.cpp Server Configuration
-LLAMA_SERVER_PATH=../llama.cpp/build/bin/llama-server
-LLAMA_MODEL_PATH=../llama.cpp/models/llama-3-8b-instruct-q4_k_m.gguf
-LLAMA_PORT=8080
-
 # API Server Configuration
 API_PORT=9000
 
-# LLM Configuration
+# LLM Configuration (Chat Completions)
 LLM_BASE_URL=http://localhost:8080
 LLM_API_KEY=dummy-key
-LLM_MODEL=local-model
+LLM_MODEL=Llama-3.1-8B-Instruct
+
+# Embeddings Configuration
+EMBEDDING_BASE_URL=http://localhost:8081
+EMBEDDING_MODEL_NAME=granite-embedding-278m-multilingual
 
 # Qdrant Configuration
-QDRANT_VECTOR_SIZE=4096
+# Note: Must match the output vector size of the embeddings model
+# For granite-embedding-278m-multilingual, this is typically 1024 dimensions
+QDRANT_VECTOR_SIZE=1024
 
 # Vault Configuration
 VAULT_PERSONAL_PATH=./vaults/personal
@@ -67,7 +68,8 @@ tilt up
 
 This will:
 
-- Start llama.cpp server (port 8080)
+- Start llama.cpp chat server (port 8080) for chat completions
+- Start llama.cpp embeddings server (port 8081) for embeddings generation
 - Start Qdrant (port 6333)
 - Start API server (port 9000) - serves both API and web UI
 - Watch for file changes and auto-reload
@@ -130,13 +132,14 @@ The API server serves:
 On startup, the API server automatically indexes all markdown files from both vaults:
 
 - Scans all `.md` files in personal and work vaults
-- Chunks files by heading hierarchy (min 50 chars, max 2000 chars per chunk)
+- Chunks files by heading hierarchy (min 50 runes, max 1000 runes per chunk)
 - Generates embeddings for each chunk with automatic batch size reduction on errors
+- Skips chunks that exceed the embedding model's context size limit (512 tokens) with warnings
 - Stores metadata in SQLite and vectors in Qdrant
 - Uses hash-based change detection to skip unchanged files
 - Validates embedding vector size at startup (fail-fast if mismatch)
 
-Indexing runs synchronously at startup. Errors for individual files are logged but don't prevent the server from starting. The indexer automatically handles embedding batch size errors by splitting batches in half and retrying. Check logs for indexing progress and any errors.
+Indexing runs synchronously at startup. Errors for individual files are logged but don't prevent the server from starting. The indexer automatically handles embedding batch size errors by splitting batches in half and retrying. Chunks that are too large for the embedding model (exceeding 512 tokens) are skipped with warnings rather than causing failures. Check logs for indexing progress and any errors.
 
 ### API Server Environment Variables
 
@@ -150,15 +153,17 @@ When running the API server directly (not via Tilt), you can set these environme
 
 **Optional (with defaults):**
 
-- `LLM_BASE_URL` - Base URL for llama.cpp server (default: `http://localhost:8080`)
+- `LLM_BASE_URL` - Base URL for llama.cpp chat server (default: `http://localhost:8080`)
 - `LLM_API_KEY` - API key for llama.cpp (default: `dummy-key`)
-- `LLM_MODEL` - Model name to use (default: `local-model`)
-- `EMBEDDING_BASE_URL` - Base URL for embeddings (default: same as `LLM_BASE_URL`)
-- `EMBEDDING_MODEL_NAME` - Model name for embeddings (default: same as `LLM_MODEL`)
+- `LLM_MODEL` - Model name for chat completions (default: `Llama-3.1-8B-Instruct`)
+- `EMBEDDING_BASE_URL` - Base URL for embeddings API (default: `http://localhost:8081`)
+- `EMBEDDING_MODEL_NAME` - Model name for embeddings (default: `granite-embedding-278m-multilingual`)
 - `DB_PATH` - Path to SQLite database (default: `./data/helloworld-ai.db`)
 - `QDRANT_URL` - Qdrant server URL (default: `http://localhost:6333`)
 - `QDRANT_COLLECTION` - Qdrant collection name (default: `notes`)
 - `API_PORT` - Port for API server (default: `9000`)
+
+**Note:** The embedding model (`granite-embedding-278m-multilingual`) has a hard context size limit of 512 tokens. Chunks exceeding this limit are automatically skipped during indexing. The `QDRANT_VECTOR_SIZE` must match the output vector size of your embeddings model (typically 1024 for granite-embedding-278m-multilingual).
 
 **Note:** The Go service automatically loads `.env` files from the project root. Environment variables take precedence over `.env` file values if both are set. When using Tilt, the `.env` file is automatically loaded by the Go service.
 
@@ -281,10 +286,12 @@ scp bin/helloworld-ai-api user@server:~/helloworld-ai/
 ```bash
 VAULT_PERSONAL_PATH=/path/to/personal \
 VAULT_WORK_PATH=/path/to/work \
-QDRANT_VECTOR_SIZE=768 \
+QDRANT_VECTOR_SIZE=1024 \
 LLM_BASE_URL=http://localhost:8080 \
 LLM_API_KEY=dummy-key \
-LLM_MODEL=local-model \
+LLM_MODEL=Llama-3.1-8B-Instruct \
+EMBEDDING_BASE_URL=http://localhost:8081 \
+EMBEDDING_MODEL_NAME=granite-embedding-278m-multilingual \
 API_PORT=9000 \
 ./helloworld-ai-api
 ```

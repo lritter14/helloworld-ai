@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"testing"
+	"unicode/utf8"
 )
 
 func TestNewGoldmarkChunker(t *testing.T) {
@@ -118,10 +119,11 @@ func TestGoldmarkChunker_ChunkMarkdown_SizeConstraints(t *testing.T) {
 		t.Error("ChunkMarkdown() should extract title")
 	}
 
-	// Check that chunks respect size constraints
+	// Check that chunks respect size constraints (using rune count)
 	for i, chunk := range chunks {
-		if len(chunk.Text) > maxChunkSize {
-			t.Errorf("ChunkMarkdown() chunk[%d] size = %d, exceeds max %d", i, len(chunk.Text), maxChunkSize)
+		chunkRunes := utf8.RuneCountInString(chunk.Text)
+		if chunkRunes > maxChunkSize {
+			t.Errorf("ChunkMarkdown() chunk[%d] size = %d runes, exceeds max %d", i, chunkRunes, maxChunkSize)
 		}
 	}
 }
