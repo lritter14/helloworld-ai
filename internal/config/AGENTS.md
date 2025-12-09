@@ -114,6 +114,56 @@ if vectorSize <= 0 {
 - `VaultPersonalPath` - Required path to personal vault
 - `VaultWorkPath` - Required path to work vault
 
+## Testing
+
+### Test Patterns
+
+**Environment Variable Isolation:**
+
+Tests change to temporary directories to avoid loading `.env` files:
+
+```go
+t.Run(tt.name, func(t *testing.T) {
+    // Change to temp directory without .env file
+    tmpDir := t.TempDir()
+    originalWd, _ := os.Getwd()
+    _ = os.Chdir(tmpDir)
+    defer func() {
+        _ = os.Chdir(originalWd) // Ignore error in cleanup
+    }()
+    
+    // Test code here
+})
+```
+
+**Helper Functions:**
+
+Use helper functions to ignore errors in test setup:
+
+```go
+// setEnv sets an environment variable, ignoring errors (for test setup)
+func setEnv(key, value string) {
+    _ = os.Setenv(key, value)
+}
+
+// unsetEnv unsets an environment variable, ignoring errors (for test cleanup)
+func unsetEnv(key string) {
+    _ = os.Unsetenv(key)
+}
+```
+
+**Temporary Directories:**
+
+Use `t.TempDir()` for all test paths:
+
+```go
+setupEnv: func(t *testing.T) {
+    setEnv("VAULT_PERSONAL_PATH", t.TempDir())
+    setEnv("VAULT_WORK_PATH", t.TempDir())
+    setEnv("QDRANT_VECTOR_SIZE", "768")
+}
+```
+
 ## Rules
 
 - **Automatic .env Loading:** Search for `.env` file in project root automatically
@@ -123,3 +173,5 @@ if vectorSize <= 0 {
 - **Type Conversion:** Handle type conversion with proper error messages
 - **Directory Creation:** Create necessary directories (e.g., data directory)
 - **Cross-platform:** Use `filepath` package for path operations
+- **Test Isolation:** Use temporary directories and change working directory in tests
+- **Error Handling:** Use helper functions to ignore errors in test setup/cleanup

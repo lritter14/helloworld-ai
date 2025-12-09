@@ -81,9 +81,52 @@ func CORS(next http.Handler) http.Handler {
 }
 ```
 
+## Testing
+
+### Test Patterns
+
+**Mock Usage:**
+
+```go
+ctrl := gomock.NewController(t)
+defer ctrl.Finish()
+
+mockChatService := mocks.NewMockChatService(ctrl)
+
+deps := &Deps{
+    ChatService: mockChatService,
+    IndexHTML:   "<html></html>",
+}
+
+router := NewRouter(deps)
+```
+
+**HTTP Testing:**
+
+```go
+req := httptest.NewRequest(http.MethodGet, "/", nil)
+w := httptest.NewRecorder()
+
+router.ServeHTTP(w, req)
+
+// Check middleware applied
+if w.Header().Get("Access-Control-Allow-Origin") == "" {
+    t.Error("Router should apply CORS middleware")
+}
+```
+
+**Error Handling:**
+
+Properly handle error returns:
+
+```go
+_, _ = w.Write([]byte(deps.IndexHTML)) // Ignore error in handler
+```
+
 ## Rules
 
 - Add middleware in logical order
 - Use typed context keys for logger
 - Wrap ResponseWriter to capture status codes
 - Handle preflight requests in CORS
+- Handle all error returns (use `_` for intentional ignores)

@@ -147,6 +147,46 @@ if err != nil {
 - Log errors with structured logging
 - Return descriptive error messages
 
+## Testing
+
+### Mock Generation
+
+The `VectorStore` interface has a `//go:generate` directive:
+
+```go
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_vector_store.go -package=mocks helloworld-ai/internal/vectorstore VectorStore
+```
+
+### Test Patterns
+
+**Mock Usage:**
+
+```go
+ctrl := gomock.NewController(t)
+defer ctrl.Finish()
+
+mockVectorStore := mocks.NewMockVectorStore(ctrl)
+mockVectorStore.EXPECT().Upsert(gomock.Any(), "collection", gomock.Any()).Return(nil)
+```
+
+**Qdrant Client Mocking:**
+
+For unit tests, avoid creating real Qdrant clients. Tests focus on:
+- URL parsing and validation
+- Error handling
+- Logic without network calls
+
+**Error Handling:**
+
+Properly handle all error returns:
+
+```go
+// In production code
+if len(point.Meta) > 0 { // Simplified nil check
+    qdrantPoint.Payload = qdrant.NewValueMap(point.Meta)
+}
+```
+
 ## Rules
 
 - Use context in all operations
@@ -155,4 +195,6 @@ if err != nil {
 - Use prefix matching for folder filters
 - Store metadata as specified in plan (Section 0.20)
 - Single collection for all vaults (filter by metadata)
+- Use mocks for unit tests to avoid network dependencies
+- Simplify nil checks (len() for nil maps is defined as zero)
 

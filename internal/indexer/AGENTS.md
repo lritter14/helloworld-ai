@@ -177,6 +177,72 @@ if err := indexerPipeline.IndexAll(ctx); err != nil {
 - **Storage errors:** Return error (fails indexing for that file)
 - **IndexAll:** Logs errors but doesn't fail startup (per Section 0.19)
 
+## Testing
+
+### Mock Generation
+
+Dependencies have `//go:generate` directives in their respective packages:
+- `storage.NoteStore` - in storage package
+- `storage.ChunkStore` - in storage package
+- `vectorstore.VectorStore` - in vectorstore package
+
+### Test Patterns
+
+**Mock Usage:**
+
+```go
+ctrl := gomock.NewController(t)
+defer ctrl.Finish()
+
+mockVaultManager := &vault.Manager{}
+mockNoteRepo := storage_mocks.NewMockNoteStore(ctrl)
+mockChunkRepo := storage_mocks.NewMockChunkStore(ctrl)
+mockVectorStore := vectorstore_mocks.NewMockVectorStore(ctrl)
+
+embedder := &llm.EmbeddingsClient{
+    ExpectedSize: 768,
+}
+
+pipeline := indexer.NewPipeline(
+    mockVaultManager,
+    mockNoteRepo,
+    mockChunkRepo,
+    embedder,
+    mockVectorStore,
+    "test-collection",
+)
+```
+
+**Chunker Testing:**
+
+Test chunking logic with various markdown structures:
+
+```go
+tests := []struct {
+    name     string
+    content  string
+    filename string
+    wantTitle string
+    wantChunks int
+}{
+    {
+        name: "multiple headings",
+        content: "# H1\nContent\n## H2\nMore content",
+        filename: "test.md",
+        wantTitle: "H1",
+        wantChunks: 2,
+    },
+}
+```
+
+**Error Handling:**
+
+Properly handle all error returns:
+
+```go
+logger := slog.New(slog.NewTextHandler(io.Discard, nil)) // Suppress logs in tests
+```
+
 ## Rules
 
 - **Hash-based skipping:** Always check hash before re-indexing
@@ -185,6 +251,8 @@ if err := indexerPipeline.IndexAll(ctx); err != nil {
 - **Context support:** All operations accept `context.Context` for cancellation
 - **Error wrapping:** Wrap errors with context using `fmt.Errorf("...: %w", err)`
 - **Logging:** Extract logger from context, fallback to default logger
+- **Test Isolation:** Use mocks for all dependencies
+- **Log Suppression:** Suppress log output during tests for cleaner test runs
 
 ## Chunking Edge Cases
 

@@ -201,13 +201,21 @@ make deps          # Install Go dependencies
 
 ### Testing
 
-The project uses [gomock](https://github.com/uber-go/mock) for generating mocks. To generate mocks:
+The project has comprehensive unit tests for all packages and uses [gomock](https://github.com/uber-go/mock) for generating mocks.
+
+#### Generating Mocks
+
+Mocks are automatically generated using `//go:generate` directives in source files:
 
 ```bash
 make generate-mocks
 # Or use go generate directly:
 go generate ./...
 ```
+
+Mocks are generated in `mocks/` subdirectories within each package (e.g., `internal/service/mocks/`).
+
+#### Running Tests
 
 Run all tests:
 
@@ -223,7 +231,31 @@ Run tests for a specific package:
 go test ./internal/service -v
 ```
 
-**Note:** Mocks are generated in subdirectories (e.g., `internal/service/mocks/`) to avoid import cycles. Some test files use `_test` packages (e.g., `service_test`) to properly import mocks.
+Run tests with coverage:
+
+```bash
+go test ./... -cover
+```
+
+#### Test Patterns
+
+- **Mock Generation:** Interfaces have `//go:generate` directives for automatic mock generation
+- **External Test Packages:** Some test files use `_test` packages (e.g., `service_test`) to avoid import cycles when using mocks
+- **Test Isolation:** Each test uses temporary directories and properly cleans up resources
+- **Log Suppression:** Test files suppress log output for cleaner test runs
+
+#### Linting
+
+Run the linter:
+
+```bash
+make lint
+```
+
+The project follows Go best practices:
+- All error returns are properly handled
+- No unused variables or imports
+- Proper error wrapping with context
 
 ## Deployment
 

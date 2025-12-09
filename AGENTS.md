@@ -441,18 +441,27 @@ When developing with Tilt, configuration values are stored in `.env` file at the
 
 - Write unit tests for each package
 - Use `gomock` for generating mocks of interfaces
-- Mocks are generated in subdirectories (e.g., `internal/service/mocks/`)
+- Mocks are generated in `mocks/` subdirectories (e.g., `internal/service/mocks/`)
 - Use `//go:generate` directives in source files to generate mocks
 - Run `make generate-mocks` or `go generate ./...` to regenerate mocks
 - Some test files use `_test` packages (e.g., `service_test`) to avoid import cycles when using mocks
+- Suppress log output in tests for cleaner test runs
+- Use temporary directories for test data isolation
+- Properly handle all error returns (use `_` for intentional ignores in tests)
 
 ### 13.2 Mock Generation
 
-Mocks are generated using `gomock` with `//go:generate` directives:
+Mocks are generated using `go.uber.org/mock` with `//go:generate` directives:
 
 ```go
-//go:generate mockgen -destination=mocks/mock_llm_client.go -package=mocks -self_package=helloworld-ai/internal/service/mocks helloworld-ai/internal/service LLMClient
+//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_llm_client.go -package=mocks helloworld-ai/internal/service LLMClient
 ```
+
+**Pattern:**
+- Place `//go:generate` directive above the interface definition
+- Use `go run go.uber.org/mock/mockgen@latest` for version-independent generation
+- Output to `mocks/` subdirectory within the package
+- Use `package=mocks` for the generated mock package
 
 Run mock generation:
 
@@ -475,15 +484,146 @@ go test ./internal/service -v
 go test ./... -cover
 ```
 
-## 14. General Go Best Practices
+### 13.4 Test Patterns
+
+**External Test Packages:**
+
+Some test files use external test packages to avoid import cycles:
+
+```go
+// internal/service/chat_test.go
+package service_test // External package
+
+import (
+    "helloworld-ai/internal/service"
+    "helloworld-ai/internal/service/mocks" // Can import mocks
+)
+```
+
+**Log Suppression:**
+
+Suppress log output during tests for cleaner output:
+
+```go
+func init() {
+    // Set default logger to discard output
+    slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+```
+
+**Error Handling in Tests:**
+
+Properly handle error returns, even in cleanup code:
+
+```go
+defer func() {
+    _ = db.Close() // Explicitly ignore error in test cleanup
+}()
+```
+
+**Test Isolation:**
+
+Use temporary directories for test data:
+
+```go
+tmpDir := t.TempDir()
+dbPath := filepath.Join(tmpDir, "test.db")
+```
+
+### 13.5 Test Coverage
+
+The project maintains comprehensive test coverage across all packages:
+
+- **Config:** Environment variable loading, validation, `.env` file handling
+- **Service:** Business logic, error handling, logging
+- **Handlers:** HTTP request/response handling, error mapping, streaming
+- **Storage:** Database operations, repository patterns, error handling
+- **LLM:** HTTP client operations, streaming, embeddings
+- **Vector Store:** Qdrant operations, search, filtering
+- **Vault:** File scanning, path resolution, vault management
+- **Indexer:** Markdown chunking, indexing pipeline, change detection
+- **HTTP:** Middleware, router setup, CORS handling
+
+## 14. Linting and Code Quality
+
+### 14.1 Linting Guidelines
+
+The project uses `golangci-lint` for code quality checks. Run linting:
+
+```bash
+make lint
+```
+
+**Key Rules:**
+
+- **errcheck:** All error returns must be handled or explicitly ignored with `_`
+- **staticcheck:** Follow static analysis recommendations (e.g., simplify nil checks)
+- **No unused variables or imports**
+
+### 14.2 Error Handling Best Practices
+
+**In Production Code:**
+
+```go
+// Always handle errors
+if err != nil {
+    return fmt.Errorf("operation failed: %w", err)
+}
+
+// Explicitly ignore only when intentional
+_ = os.Unsetenv(key) // Ignore error - env var may not exist
+```
+
+**In Test Code:**
+
+```go
+// Use defer with explicit error ignore for cleanup
+defer func() {
+    _ = db.Close() // Ignore error in test cleanup
+}()
+
+// For test setup, ignore errors that don't affect test validity
+_ = os.Setenv("TEST_VAR", "value") // Ignore error in test setup
+```
+
+### 14.3 Staticcheck Fixes
+
+**Nil Check Simplification:**
+
+```go
+// Before
+if point.Meta != nil && len(point.Meta) > 0 {
+    // ...
+}
+
+// After (len() for nil maps is defined as zero)
+if len(point.Meta) > 0 {
+    // ...
+}
+```
+
+**Empty Branch Handling:**
+
+```go
+// Before
+if stats.MaxIdleClosed != 0 {
+    // This is just checking the setting
+}
+
+// After
+_ = stats.MaxIdleClosed // Explicitly use variable
+```
+
+## 15. General Go Best Practices
 
 - Use `go:embed` for embedding static files (e.g., HTML) in binary
-- Defer cleanup - Always defer resource cleanup (e.g., `defer db.Close()`)
+- Defer cleanup - Always defer resource cleanup (e.g., `defer func() { _ = db.Close() }()`)
 - Handle errors - Never ignore errors, always handle or explicitly ignore with `_`
 - Use `_` for unused imports - Use blank identifier for side-effect imports
 - Document exported symbols - Add godoc comments for exported types and functions
 - Keep functions focused - Functions should do one thing well
 - Avoid global state - Pass dependencies explicitly
+- Run `make lint` before committing to ensure code quality
 
 ## Project-Specific Details
 

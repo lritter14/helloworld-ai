@@ -157,6 +157,59 @@ vectors, err := client.EmbedTexts(ctx, []string{"text1", "text2"})
 - Converts `[]float64` from JSON to `[]float32`
 - Returns error if vector size mismatch or empty input
 
+## Testing
+
+### Test Patterns
+
+**HTTP Test Server:**
+
+Use `httptest.NewServer` to mock HTTP responses:
+
+```go
+server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    resp := ChatResponse{
+        ID:     "test-id",
+        Object: "chat.completion",
+        Choices: []ChatChoice{
+            {
+                Message: ChatChoiceMessage{
+                    Content: "Hello!",
+                },
+            },
+        },
+    }
+    w.Header().Set("Content-Type", "application/json")
+    _ = json.NewEncoder(w).Encode(resp) // Ignore error in test
+}))
+defer server.Close()
+
+client := NewClient(server.URL, "test-key", "test-model")
+```
+
+**Streaming Tests:**
+
+```go
+server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    flusher, _ := w.(http.Flusher)
+    chunks := []string{"Hello", " ", "world"}
+    
+    for _, chunk := range chunks {
+        _, _ = w.Write([]byte("data: " + chunk + "\n\n")) // Ignore error in test
+        flusher.Flush()
+    }
+    _, _ = w.Write([]byte("data: [DONE]\n\n")) // Ignore error in test
+}))
+```
+
+**Error Handling:**
+
+Properly handle all error returns in test code:
+
+```go
+_ = json.NewEncoder(w).Encode(resp) // Ignore error in test handler
+_, _ = w.Write([]byte("error")) // Ignore error in test handler
+```
+
 ## Rules
 
 - Use context in all requests
@@ -165,3 +218,4 @@ vectors, err := client.EmbedTexts(ctx, []string{"text1", "text2"})
 - Check status codes before parsing
 - Validate vector sizes in embeddings client
 - Keep backward compatibility (don't break existing `Chat` method)
+- Handle all error returns (use `_` for intentional ignores in tests)

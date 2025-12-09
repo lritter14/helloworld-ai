@@ -106,6 +106,46 @@ type VaultStore interface {
 }
 ```
 
+## Testing
+
+### Mock Generation
+
+The `VaultStore` interface has a `//go:generate` directive (in storage package).
+
+### Test Patterns
+
+**Mock Usage:**
+
+```go
+ctrl := gomock.NewController(t)
+defer ctrl.Finish()
+
+mockVaultStore := storage_mocks.NewMockVaultStore(ctrl)
+mockVaultStore.EXPECT().GetOrCreateByName(gomock.Any(), "personal", gomock.Any()).Return(storage.VaultRecord{ID: 1, Name: "personal"}, nil)
+
+manager, err := vault.NewManager(context.Background(), mockVaultStore, "/tmp/personal", "/tmp/work")
+```
+
+**File System Testing:**
+
+Use temporary directories for test isolation:
+
+```go
+tmpDir := t.TempDir()
+vaultPath := filepath.Join(tmpDir, "vault")
+os.MkdirAll(vaultPath, 0755)
+```
+
+**Error Handling:**
+
+Properly handle all error returns:
+
+```go
+defer func() {
+    _ = db.Close() // Ignore error in test cleanup
+}()
+```
+
 ## Rules
 
 - **Vault Caching:** Manager caches vaults for efficient lookup
@@ -113,6 +153,8 @@ type VaultStore interface {
 - **Error Handling:** Wrap errors with context, continue scanning on per-vault errors
 - **Context Support:** All operations accept `context.Context` for cancellation
 - **Folder Calculation:** Empty string for root-level files per Section 0.6 of plan.md
+- **Test Isolation:** Use temporary directories for file system tests
+- **Error Handling:** Handle all error returns (use `_` for intentional ignores in cleanup)
 
 ## Usage in Indexer (Phase 6)
 
