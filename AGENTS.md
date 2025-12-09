@@ -409,9 +409,9 @@ func WrapError(err error, msg string) error {
 
 ### 8.2 Tilt Configuration
 
-When developing with Tilt, configuration values are stored in `.env` file at the project root. The Go service automatically loads `.env` files, so the Tiltfile no longer needs to parse them. This allows for easy local customization without modifying the Tiltfile.
+Configuration is managed via `.env` file. The Go service automatically loads `.env` files, so configuration works the same whether running via Tilt or directly.
 
-**Note:** The Tiltfile has been simplified to rely on the Go service's automatic `.env` loading. Only Tilt-specific configuration (like llama-server paths) is read from environment variables in the Tiltfile.
+**See:** `internal/config/AGENTS.md` for detailed configuration patterns.
 
 ## 9. Dependency Management
 
@@ -472,7 +472,6 @@ When developing with Tilt, configuration values are stored in `.env` file at the
 
 - Write unit tests for each package
 - Use `gomock` for generating mocks of interfaces
-- Mocks are generated in `mocks/` subdirectories (e.g., `internal/service/mocks/`)
 - Use `//go:generate` directives in source files to generate mocks
 - Run `make generate-mocks` or `go generate ./...` to regenerate mocks
 - Some test files use `_test` packages (e.g., `service_test`) to avoid import cycles when using mocks
@@ -480,102 +479,7 @@ When developing with Tilt, configuration values are stored in `.env` file at the
 - Use temporary directories for test data isolation
 - Properly handle all error returns (use `_` for intentional ignores in tests)
 
-### 13.2 Mock Generation
-
-Mocks are generated using `go.uber.org/mock` with `//go:generate` directives:
-
-```go
-//go:generate go run go.uber.org/mock/mockgen@latest -destination=mocks/mock_llm_client.go -package=mocks helloworld-ai/internal/service LLMClient
-```
-
-**Pattern:**
-
-- Place `//go:generate` directive above the interface definition
-- Use `go run go.uber.org/mock/mockgen@latest` for version-independent generation
-- Output to `mocks/` subdirectory within the package
-- Use `package=mocks` for the generated mock package
-
-Run mock generation:
-
-```bash
-make generate-mocks
-# Or:
-go generate ./...
-```
-
-### 13.3 Running Tests
-
-```bash
-# Run all tests
-make test
-
-# Run tests for specific package
-go test ./internal/service -v
-
-# Run tests with coverage
-go test ./... -cover
-```
-
-### 13.4 Test Patterns
-
-**External Test Packages:**
-
-Some test files use external test packages to avoid import cycles:
-
-```go
-// internal/service/chat_test.go
-package service_test // External package
-
-import (
-    "helloworld-ai/internal/service"
-    "helloworld-ai/internal/service/mocks" // Can import mocks
-)
-```
-
-**Log Suppression:**
-
-Suppress log output during tests for cleaner output:
-
-```go
-func init() {
-    // Set default logger to discard output
-    slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
-}
-```
-
-**Error Handling in Tests:**
-
-Properly handle error returns, even in cleanup code:
-
-```go
-defer func() {
-    _ = db.Close() // Explicitly ignore error in test cleanup
-}()
-```
-
-**Test Isolation:**
-
-Use temporary directories for test data:
-
-```go
-tmpDir := t.TempDir()
-dbPath := filepath.Join(tmpDir, "test.db")
-```
-
-### 13.5 Test Coverage
-
-The project maintains comprehensive test coverage across all packages:
-
-- **Config:** Environment variable loading, validation, `.env` file handling
-- **Service:** Business logic, error handling, logging
-- **Handlers:** HTTP request/response handling, error mapping, streaming, RAG queries
-- **RAG:** RAG engine, question-answering workflow, context formatting
-- **Storage:** Database operations, repository patterns, error handling, GetByID for RAG
-- **LLM:** HTTP client operations, streaming, embeddings
-- **Vector Store:** Qdrant operations, search, filtering
-- **Vault:** File scanning, path resolution, vault management
-- **Indexer:** Markdown chunking, indexing pipeline, change detection
-- **HTTP:** Middleware, router setup, CORS handling, RAG route
+**See:** Package-specific `AGENTS.md` files for detailed testing patterns and examples.
 
 ## 14. Linting and Code Quality
 
@@ -589,9 +493,9 @@ make lint
 
 **Key Rules:**
 
-- **errcheck:** All error returns must be handled or explicitly ignored with `_`
-- **staticcheck:** Follow static analysis recommendations (e.g., simplify nil checks)
-- **No unused variables or imports**
+- All error returns must be handled or explicitly ignored with `_`
+- Follow static analysis recommendations
+- No unused variables or imports
 
 ### 14.2 Error Handling Best Practices
 
@@ -675,57 +579,15 @@ _ = stats.MaxIdleClosed // Explicitly use variable
 
 ### Environment Variables
 
-**For Tilt Development:**
+Configuration is managed via `.env` file in the project root. The Go service automatically loads `.env` files.
 
-Configuration is managed via `.env` file in the project root. The Go service automatically loads `.env` files, so configuration works the same whether running via Tilt or directly.
-
-**For Direct API Server Execution:**
-
-The Go service automatically loads `.env` files from the project root. You can run `go run ./cmd/api` directly without manually exporting environment variables. Environment variables take precedence over `.env` file values if both are set.
-
-**Required:**
-
-- `VAULT_PERSONAL_PATH` - Path to personal vault directory
-- `VAULT_WORK_PATH` - Path to work vault directory
-- `QDRANT_VECTOR_SIZE` - Vector size for embeddings (must be > 0)
-
-**Optional (with defaults):**
-
-- `LLM_BASE_URL` - Base URL for llama.cpp chat server (default: `http://localhost:8080`)
-- `LLM_API_KEY` - API key (default: `dummy-key`)
-- `LLM_MODEL` - Model name for chat completions (default: `Llama-3.1-8B-Instruct`)
-- `EMBEDDING_BASE_URL` - Base URL for embeddings API (default: `http://localhost:8081`)
-- `EMBEDDING_MODEL_NAME` - Model name for embeddings (default: `granite-embedding-278m-multilingual`)
-- `DB_PATH` - Path to SQLite database (default: `./data/helloworld-ai.db`)
-- `API_PORT` - Port for API server (default: `9000`)
-
-**Note:** Chat and embeddings use separate servers and models. The embedding model (`granite-embedding-278m-multilingual`) has a hard context size limit of 512 tokens. Chunks exceeding this limit are automatically skipped during indexing. The `QDRANT_VECTOR_SIZE` must match the output vector size of the embeddings model (typically 1024 for granite-embedding-278m-multilingual).
+**See:** `internal/config/AGENTS.md` for detailed configuration patterns, required/optional variables, and environment variable handling.
 
 ## API Documentation
 
-The project uses go-swagger for API documentation. All endpoints are documented using Swagger/OpenAPI 2.0 annotations in the handler code.
+The project uses go-swagger for API documentation. All endpoints are documented using Swagger/OpenAPI 2.0 annotations.
 
-### Documentation Generation
-
-- **Automatic:** Swagger spec is generated automatically during `make build-api`
-- **Manual:** Run `make generate-swagger` to regenerate the spec
-- **Output:** Generated spec is written to `cmd/api/swagger.json`
-- **Serving:** Spec is served by the API at `/api/docs/swagger.json` (read from disk, not embedded)
-
-### Swagger UI
-
-When using Tilt, Swagger UI is automatically started on port 8082:
-- **URL:** `http://localhost:8082/docs`
-- **Purpose:** Interactive API documentation and testing interface
-- **Dependency:** Requires `swagger` CLI tool (install via `go install github.com/go-swagger/go-swagger/cmd/swagger@latest`)
-
-### Documentation Patterns
-
-See `internal/handlers/AGENTS.md` for detailed patterns on:
-- Route documentation (`swagger:route`)
-- Parameter documentation (`swagger:parameters`)
-- Response documentation (`swagger:response`)
-- Field descriptions and validation rules
+**See:** `internal/handlers/AGENTS.md` for detailed documentation patterns, generation, and Swagger UI setup.
 
 ## Layer-Specific Documentation
 
