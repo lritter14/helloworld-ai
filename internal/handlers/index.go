@@ -36,12 +36,49 @@ func (h *IndexHandler) getLogger(ctx context.Context) *slog.Logger {
 }
 
 // IndexResponse represents the response from the index endpoint.
+//
+// swagger:model IndexResponse
 type IndexResponse struct {
 	Message string `json:"message"`
 	Status  string `json:"status"`
 }
 
 // ServeHTTP handles HTTP requests for triggering re-indexing.
+//
+// Trigger re-indexing of all markdown files in configured vaults.
+// By default, only changed files are re-indexed. Use the force query parameter
+// to clear all existing data and rebuild the index from scratch.
+//
+// swagger:route POST /api/index triggerIndex
+//
+// Trigger re-indexing of vaults
+//
+// Starts an asynchronous re-indexing process that scans all markdown files
+// in the configured vaults and updates the search index. The operation runs
+// in the background and returns immediately with an accepted status.
+//
+// ---
+// produces:
+// - application/json
+// parameters:
+// - in: query
+//   name: force
+//   type: boolean
+//   default: false
+//   description: If true, clears all existing indexed data before re-indexing
+// responses:
+//   '202':
+//     description: Indexing started successfully
+//     schema:
+//       "$ref": "#/definitions/IndexResponse"
+//   '405':
+//     description: Method not allowed
+//     schema:
+//       "$ref": "#/definitions/ErrorResponse"
+//   '500':
+//     description: Internal server error
+//     schema:
+//       "$ref": "#/definitions/ErrorResponse"
 func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := h.getLogger(ctx)

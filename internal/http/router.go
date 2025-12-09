@@ -2,6 +2,8 @@ package http
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -45,6 +47,21 @@ func NewRouter(deps *Deps) http.Handler {
 		r.Method(http.MethodPost, "/index", indexHandler) // Re-index endpoint
 		r.Route("/v1", func(r chi.Router) {
 			r.Method(http.MethodPost, "/ask", askHandler)
+		})
+		// Serve Swagger spec at /api/docs/swagger.json
+		r.Route("/docs", func(r chi.Router) {
+			r.Get("/swagger.json", func(w http.ResponseWriter, req *http.Request) {
+				// Get the swagger.json file path relative to cmd/api
+				swaggerPath := filepath.Join("cmd", "api", "swagger.json")
+				data, err := os.ReadFile(swaggerPath)
+				if err != nil {
+					http.Error(w, "Swagger spec not found", http.StatusNotFound)
+					return
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(data)
+			})
 		})
 	})
 

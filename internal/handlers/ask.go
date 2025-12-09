@@ -30,6 +30,8 @@ func NewAskHandler(ragEngine rag.Engine, vaultRepo storage.VaultStore) *AskHandl
 
 // AskRequest represents the HTTP request payload for RAG queries.
 // This mirrors the rag.AskRequest but is defined here for HTTP layer separation.
+//
+// swagger:model AskRequest
 type AskRequest struct {
 	Question string   `json:"question"`
 	Vaults   []string `json:"vaults,omitempty"`
@@ -39,20 +41,36 @@ type AskRequest struct {
 
 // AskResponse represents the HTTP response payload for RAG queries.
 // This mirrors the rag.AskResponse but is defined here for HTTP layer separation.
+//
+// swagger:model AskResponse
 type AskResponse struct {
-	Answer     string              `json:"answer"`
+	// The generated answer from the RAG system
+	Answer string `json:"answer"`
+
+	// List of references to source chunks used in the answer
 	References []ReferenceResponse `json:"references"`
 }
 
 // ReferenceResponse represents a reference in the HTTP response.
+//
+// swagger:model ReferenceResponse
 type ReferenceResponse struct {
-	Vault       string `json:"vault"`
-	RelPath     string `json:"rel_path"`
+	// Name of the vault containing the source
+	Vault string `json:"vault"`
+
+	// Relative path to the markdown file within the vault
+	RelPath string `json:"rel_path"`
+
+	// Heading path within the document (e.g., "H1 > H2 > H3")
 	HeadingPath string `json:"heading_path"`
-	ChunkIndex  int    `json:"chunk_index"`
+
+	// Index of the chunk within the document
+	ChunkIndex int `json:"chunk_index"`
 }
 
 // ErrorResponse represents an error response.
+//
+// swagger:model ErrorResponse
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
@@ -70,6 +88,52 @@ func (h *AskHandler) getLogger(ctx context.Context) *slog.Logger {
 }
 
 // ServeHTTP handles HTTP requests for RAG queries.
+//
+// Ask a question to the RAG system and get an answer based on indexed markdown notes.
+// The system will search for relevant chunks across the specified vaults and folders,
+// then generate an answer using the retrieved context.
+//
+// swagger:route POST /api/v1/ask askQuestion
+//
+// # Ask a question using RAG
+//
+// Queries the RAG system with a question and optional filters for vaults and folders.
+// Returns an answer generated from relevant indexed content along with source references.
+//
+// ---
+// consumes:
+// - application/json
+// produces:
+// - application/json
+// parameters:
+//   - in: body
+//     name: body
+//     required: true
+//     schema:
+//     "$ref": "#/definitions/AskRequest"
+//
+// responses:
+//
+//	'200':
+//	  description: Successful response with answer and references
+//	  schema:
+//	    "$ref": "#/definitions/AskResponse"
+//	'400':
+//	  description: Bad request (invalid question or vault name)
+//	  schema:
+//	    "$ref": "#/definitions/ErrorResponse"
+//	'502':
+//	  description: External service error (LLM or embedding service unavailable)
+//	  schema:
+//	    "$ref": "#/definitions/ErrorResponse"
+//	'503':
+//	  description: Vector store unavailable
+//	  schema:
+//	    "$ref": "#/definitions/ErrorResponse"
+//	'500':
+//	  description: Internal server error
+//	  schema:
+//	    "$ref": "#/definitions/ErrorResponse"
 func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := h.getLogger(ctx)

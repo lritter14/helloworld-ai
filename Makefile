@@ -1,4 +1,4 @@
-.PHONY: run run-api start stop tilt-up tilt-down tilt-restart start-llama lint test build build-api deps clean help generate-mocks test-rag
+.PHONY: run run-api start stop tilt-up tilt-down tilt-restart start-llama lint test build build-api deps clean help generate-mocks test-rag generate-swagger
 
 # llama.cpp server configuration
 LLAMA_SERVER ?= ../llama.cpp/build/bin/llama-server
@@ -22,6 +22,7 @@ help:
 	@echo "  build-api     - Build the API binary (outputs to bin/helloworld-ai-api)"
 	@echo "  deps          - Install Go dependencies"
 	@echo "  generate-mocks - Generate mock files for testing"
+	@echo "  generate-swagger - Generate Swagger/OpenAPI specification from code"
 	@echo "  test-rag      - Run RAG endpoint test script"
 	@echo "  reindex       - Re-index all vaults via API (skips unchanged files)"
 	@echo "  force-reindex - Force re-index via API (clears all data and rebuilds from scratch)"
@@ -74,8 +75,20 @@ generate-mocks:
 	@go generate ./...
 	@echo "Mocks generated successfully"
 
+generate-swagger:
+	@echo "Generating Swagger specification..."
+	@if ! command -v swagger > /dev/null; then \
+		echo "Error: swagger CLI not found. Install it with:"; \
+		echo "  go install github.com/go-swagger/go-swagger/cmd/swagger@latest"; \
+		exit 1; \
+	fi
+	@swagger generate spec -o cmd/api/swagger.json
+	@echo "Swagger specification generated: cmd/api/swagger.json"
+	@echo "Note: The swagger.json file is served by the API at /api/docs/swagger.json"
+	@echo "      Swagger UI is available via Tilt at http://localhost:8082"
 
-build-api:
+
+build-api: generate-swagger
 	@mkdir -p bin
 	@go build -o bin/helloworld-ai-api ./cmd/api
 	@echo "Binary built: bin/helloworld-ai-api"

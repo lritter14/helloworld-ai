@@ -21,6 +21,30 @@ import (
 //go:embed index.html
 var indexHTML string
 
+//go:generate swagger generate spec -o swagger.json
+
+// General API information
+//
+// This API provides RAG (Retrieval-Augmented Generation) functionality for querying indexed markdown notes from Obsidian vaults.
+//
+// swagger:meta
+//
+// ---
+// swagger: '2.0'
+// info:
+//   title: HelloWorld AI API
+//   description: |
+//     RAG (Retrieval-Augmented Generation) API for querying indexed markdown notes from Obsidian vaults.
+//     The API allows you to ask questions and get answers based on content indexed from your vaults.
+//   version: 1.0.0
+// schemes:
+//   - http
+//   - https
+// consumes:
+//   - application/json
+// produces:
+//   - application/json
+
 func main() {
 	// Configure structured logging with DEBUG level
 	opts := &slog.HandlerOptions{

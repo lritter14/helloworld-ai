@@ -20,6 +20,9 @@ llama_embeddings_port = 8081
 # API Server Configuration
 api_port = 9000
 
+# Swagger UI Configuration
+swagger_port = 8082
+
 # ============================================================================
 # Qdrant Vector Database (Infrastructure Dependency)
 # ============================================================================
@@ -151,6 +154,7 @@ local_resource(
         "./internal",
         "./go.mod",
         "./go.sum",
+        "./cmd/api/swagger.json",
     ],
     resource_deps=["qdrant", "llama-server-chat", "llama-server-embeddings"],
     labels=["api"],
@@ -160,6 +164,41 @@ local_resource(
     ],
     readiness_probe=probe(
         exec=exec_action(["curl", "-f", "http://localhost:%d/" % api_port]),
+        initial_delay_secs=5,
+        timeout_secs=2,
+        period_secs=3,
+    ),
+)
+
+# ============================================================================
+# Swagger UI (API Documentation)
+# ============================================================================
+local_resource(
+    name="swagger-ui",
+    serve_cmd=[
+        "bash", "-c",
+        """
+        if ! command -v swagger > /dev/null; then
+            echo "Error: swagger CLI not found. Install it with:"
+            echo "  go install github.com/go-swagger/go-swagger/cmd/swagger@latest"
+            exit 1
+        fi
+        echo "Starting Swagger UI on port %d..."
+        echo "Swagger UI will be available at: http://localhost:%d"
+        echo "API docs JSON: http://localhost:%d/api/docs/swagger.json"
+        # Serve Swagger UI with the spec file
+        # Note: Swagger UI will use the spec's host/scheme, or you can change it in the UI
+        swagger serve -p %d -F swagger --no-open cmd/api/swagger.json
+        """ % (swagger_port, swagger_port, api_port, swagger_port),
+    ],
+    deps=[
+        "./cmd/api/swagger.json",
+    ],
+    resource_deps=["api"],
+    labels=["api", "docs"],
+    ignore=["**"],
+    readiness_probe=probe(
+        exec=exec_action(["curl", "-f", "http://localhost:%d/docs" % swagger_port]),
         initial_delay_secs=5,
         timeout_secs=2,
         period_secs=3,
