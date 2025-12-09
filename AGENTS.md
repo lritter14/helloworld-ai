@@ -375,7 +375,9 @@ func WrapError(err error, msg string) error {
 
 - `LLM_BASE_URL` - Base URL for llama.cpp server (default: `http://localhost:8080`)
 - `LLM_API_KEY` - API key (default: `dummy-key`)
-- `LLM_MODEL` - Model name (default: `local-model`)
+- `LLM_MODEL` - Model name for chat completions (default: `local-model`)
+- `EMBEDDING_BASE_URL` - Base URL for embeddings API (default: same as `LLM_BASE_URL`)
+- `EMBEDDING_MODEL_NAME` - Model name for embeddings (default: same as `LLM_MODEL`)
 - `DB_PATH` - Path to SQLite database (default: `./data/helloworld-ai.db`)
 - `API_PORT` - Port for API server (default: `9000`)
 
@@ -386,6 +388,6 @@ For detailed patterns specific to each layer, see:
 - **Handlers:** `internal/handlers/AGENTS.md` - HTTP handler patterns, DTOs, streaming
 - **Service:** `internal/service/AGENTS.md` - Business logic, domain errors, validation
 - **Storage:** `internal/storage/AGENTS.md` - Repository pattern, database operations
-- **LLM:** `internal/llm/AGENTS.md` - External service client patterns
+- **LLM:** `internal/llm/AGENTS.md` - External service client patterns (chat and embeddings)
 - **HTTP:** `internal/http/AGENTS.md` - Middleware, router setup
 - **Config:** `internal/config/AGENTS.md` - Configuration patterns

@@ -195,7 +195,7 @@ helloworld-ai/
 │   ├── handlers/     # HTTP handlers (ingress layer)
 │   ├── service/      # Business logic (service layer)
 │   ├── storage/      # Database operations (storage layer)
-│   └── llm/          # LLM client (external service layer)
+│   └── llm/          # LLM and embeddings clients (external service layer)
 ├── index.html        # Web UI (embedded in binary)
 └── Makefile
 ```
@@ -205,6 +205,6 @@ helloworld-ai/
 - **Ingress Layer** (`internal/handlers`) - HTTP request/response handling
 - **Service Layer** (`internal/service`) - Business logic and domain models
 - **Storage Layer** (`internal/storage`) - Database operations and repositories
-- **External Service Layer** (`internal/llm`) - llama.cpp API client
+- **External Service Layer** (`internal/llm`) - llama.cpp API clients (chat and embeddings)
 
 See `AGENTS.md` for detailed architecture guidelines and coding standards.

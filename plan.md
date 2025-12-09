@@ -28,9 +28,11 @@ This plan outlines the implementation of a RAG (Retrieval-Augmented Generation) 
 - **Phase 2:** Note repository (`internal/storage/note_repo.go`) - GetByVaultAndPath, Upsert
 - **Phase 2:** Chunk repository (`internal/storage/chunk_repo.go`) - Insert, DeleteByNote, ListIDsByNote
 - **Phase 2:** Database initialization integrated into `main.go`
+- **Phase 3:** LLM types (`internal/llm/types.go`) - Message and ChatParams types
+- **Phase 3:** Extended LLM client (`internal/llm/client.go`) - ChatWithMessages method for structured messages
+- **Phase 3:** Embeddings client (`internal/llm/embeddings.go`) - EmbedTexts method with vector size validation
 
 ❌ **Remaining:**
-- Embeddings client
 - Qdrant vector store integration
 - Vault manager and scanner
 - Markdown chunker
@@ -533,37 +535,29 @@ type Engine interface {
 
 **Goal:** Robust clients for llama.cpp chat and embeddings.
 
-**Status:** ✅ Chat client exists, but needs interface alignment. ❌ Embeddings client missing.
+**Status:** ✅ **COMPLETE** - Chat client extended with ChatWithMessages, embeddings client implemented.
 
 1. **Chat client**
 
    * [x] `internal/llm/client.go` exists with basic chat functionality ✅
-   * [ ] Align with plan interface:
-
-     * Current: `Chat(ctx, message string) (string, error)` - simple string-based
-     * Plan: `Chat(ctx, messages []Message, params ChatParams) (string, error)` - structured
-     * Options:
-       * A) Extend existing client to support both (add new method)
-       * B) Refactor to match plan interface exactly
-       * C) Keep current for simple chat, add new method for RAG use case
+   * [x] Aligned with plan interface (Option A - extended existing client):
+     * [x] Created `internal/llm/types.go` with `Message` and `ChatParams` types ✅
+     * [x] Added `ChatWithMessages(ctx, messages []Message, params ChatParams) (string, error)` method ✅
+     * [x] Existing `Chat` and `StreamChat` methods remain unchanged for backward compatibility ✅
    * [x] Uses `LLM_BASE_URL` and `LLM_MODEL` ✅
    * [x] Implements OpenAI-style `/v1/chat/completions` ✅
    * [x] Supports streaming ✅
-
-   **Note:** Current implementation works but uses simpler interface. RAG engine will need structured messages with system prompts, so consider adding support for `[]Message` format.
+   * [x] Supports structured messages with system prompts for RAG ✅
 
 2. **Embeddings client**
 
-   * [ ] `internal/llm/embeddings.go`:
-
-     * Implements `EmbeddingsClient` interface from plan:
-       ```go
-       type EmbeddingsClient interface {
-           EmbedTexts(ctx context.Context, texts []string) ([][]float32, error)
-       }
-       ```
-     * Uses `/v1/embeddings` endpoint (OpenAI-compatible)
-     * Uses `EMBEDDING_MODEL_NAME` from config
+   * [x] `internal/llm/embeddings.go`:
+     * [x] Implemented `EmbeddingsClient` struct with `EmbedTexts` method ✅
+     * [x] Uses `/v1/embeddings` endpoint (OpenAI-compatible) ✅
+     * [x] Uses `EMBEDDING_MODEL_NAME` from config ✅
+     * [x] Validates vector size matches `QDRANT_VECTOR_SIZE` config ✅
+     * [x] Converts `[]float64` from JSON to `[]float32` ✅
+     * [x] Returns `[][]float32` where each inner slice is one embedding vector ✅
 
 ---
 

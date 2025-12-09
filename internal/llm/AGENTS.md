@@ -4,7 +4,8 @@ External service client patterns.
 
 ## Core Responsibilities
 
-- Communicate with external LLM services
+- Communicate with external LLM services (chat completions)
+- Generate embeddings for text (embeddings API)
 - Implement interfaces defined by service layer
 - Handle external service errors
 - Encapsulate external API details
@@ -29,6 +30,25 @@ func NewClient(baseURL, apiKey, model string) *Client {
 }
 ```
 
+## Types
+
+Shared types for LLM operations:
+
+```go
+// Message represents a single message in a chat conversation
+type Message struct {
+    Role    string `json:"role"`
+    Content string `json:"content"`
+}
+
+// ChatParams holds parameters for chat completion requests
+type ChatParams struct {
+    Model       string  // If empty, uses client's default model
+    MaxTokens   int     // If 0, no limit
+    Temperature float32 // Default 0.7 if not specified
+}
+```
+
 ## Interface Implementation
 
 Service layer defines interface, client implements:
@@ -44,6 +64,27 @@ func (c *Client) Chat(ctx context.Context, message string) (string, error) {
     // Implementation
 }
 ```
+
+## Structured Messages
+
+For RAG and complex conversations, use `ChatWithMessages`:
+
+```go
+messages := []Message{
+    {Role: "system", Content: "You are a helpful assistant."},
+    {Role: "user", Content: "What is RAG?"},
+}
+
+params := ChatParams{
+    Model:       "", // Uses client default
+    MaxTokens:   500,
+    Temperature: 0.7,
+}
+
+reply, err := client.ChatWithMessages(ctx, messages, params)
+```
+
+**Note:** `Chat` and `StreamChat` remain for backward compatibility. `ChatWithMessages` is used by the RAG engine.
 
 ## HTTP Request Pattern
 
@@ -78,9 +119,49 @@ for scanner.Scan() {
 }
 ```
 
+## Embeddings Client
+
+Separate client for generating embeddings:
+
+```go
+type EmbeddingsClient struct {
+    BaseURL      string
+    APIKey       string
+    Model        string
+    ExpectedSize int // Vector size for validation
+    client       *http.Client
+}
+
+func NewEmbeddingsClient(baseURL, apiKey, model string, expectedSize int) *EmbeddingsClient
+
+func (c *EmbeddingsClient) EmbedTexts(ctx context.Context, texts []string) ([][]float32, error)
+```
+
+**Usage:**
+
+```go
+client := llm.NewEmbeddingsClient(
+    cfg.EmbeddingBaseURL,
+    cfg.LLMAPIKey,
+    cfg.EmbeddingModelName,
+    cfg.QdrantVectorSize, // Validates all vectors match this size
+)
+
+vectors, err := client.EmbedTexts(ctx, []string{"text1", "text2"})
+// Returns [][]float32 where each inner slice is one embedding vector
+```
+
+**Validation:**
+
+- Validates vector size matches `ExpectedSize` (from `QDRANT_VECTOR_SIZE` config)
+- Converts `[]float64` from JSON to `[]float32`
+- Returns error if vector size mismatch or empty input
+
 ## Rules
 
 - Use context in all requests
 - Wrap errors with context
 - Close response body
 - Check status codes before parsing
+- Validate vector sizes in embeddings client
+- Keep backward compatibility (don't break existing `Chat` method)

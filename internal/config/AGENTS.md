@@ -6,10 +6,21 @@ Configuration loading and validation patterns.
 
 ```go
 func Load() (*Config, error) {
+    llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8080")
+    llmModelName := getEnv("LLM_MODEL", "local-model")
+    
     cfg := &Config{
-        LLMBaseURL:   getEnv("LLM_BASE_URL", "http://localhost:8080"),
-        LLMModelName: getEnv("LLM_MODEL", "local-model"),
-        // ... more fields
+        LLMBaseURL:        llmBaseURL,
+        LLMModelName:      llmModelName,
+        LLMAPIKey:         getEnv("LLM_API_KEY", "dummy-key"),
+        EmbeddingBaseURL:  getEnv("EMBEDDING_BASE_URL", llmBaseURL),  // Defaults to LLM_BASE_URL
+        EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", llmModelName), // Defaults to LLM_MODEL
+        DBPath:            getEnv("DB_PATH", "./data/helloworld-ai.db"),
+        VaultPersonalPath: getEnv("VAULT_PERSONAL_PATH", ""),
+        VaultWorkPath:     getEnv("VAULT_WORK_PATH", ""),
+        QdrantURL:         getEnv("QDRANT_URL", "http://localhost:6333"),
+        QdrantCollection:  getEnv("QDRANT_COLLECTION", "notes"),
+        APIPort:           getEnv("API_PORT", "9000"),
     }
     
     // Validate required fields
@@ -49,10 +60,30 @@ if vectorSize <= 0 {
 }
 ```
 
+## Configuration Fields
+
+**LLM Configuration:**
+- `LLMBaseURL` - Base URL for chat completions API
+- `LLMModelName` - Model name for chat completions
+- `LLMAPIKey` - API key for authentication
+
+**Embeddings Configuration:**
+- `EmbeddingBaseURL` - Base URL for embeddings API (defaults to `LLMBaseURL`)
+- `EmbeddingModelName` - Model name for embeddings (defaults to `LLMModelName`)
+
+**Vector Store Configuration:**
+- `QdrantURL` - Qdrant server URL
+- `QdrantCollection` - Collection name
+- `QdrantVectorSize` - Required vector size (validated > 0)
+
+**Vault Configuration:**
+- `VaultPersonalPath` - Required path to personal vault
+- `VaultWorkPath` - Required path to work vault
+
 ## Rules
 
 - Validate required fields at startup
-- Provide sensible defaults
+- Provide sensible defaults (embeddings default to LLM settings)
 - Handle type conversion with errors
-- Create necessary directories
+- Create necessary directories (e.g., data directory)
 - Return clear error messages
