@@ -22,8 +22,10 @@ func NewRouter(deps *Deps) http.Handler {
 	r := chi.NewRouter()
 
 	// Add chi middleware
-	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+
+	// Add custom request logger (skips health checks)
+	r.Use(RequestLogger)
 
 	// Add structured logging middleware
 	r.Use(LoggerMiddleware)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 )
 
 type contextKey string
@@ -21,6 +22,45 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), loggerKey, logger)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+// RequestLogger logs HTTP requests, skipping health check endpoints.
+func RequestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+
+		// Wrap the response writer to capture status code
+		ww := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
+		next.ServeHTTP(ww, r)
+
+		// Skip logging for health check endpoints (GET / with 200 status)
+		if r.Method == http.MethodGet && r.URL.Path == "/" && ww.statusCode == http.StatusOK {
+			return
+		}
+
+		// Log the request
+		duration := time.Since(start)
+		slog.Info(
+			"HTTP request",
+			"method", r.Method,
+			"path", r.URL.Path,
+			"status", ww.statusCode,
+			"duration", duration,
+			"remote_addr", r.RemoteAddr,
+		)
+	})
+}
+
+// responseWriter wraps http.ResponseWriter to capture status code.
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
 }
 
 // CORS adds CORS headers to allow cross-origin requests.
@@ -45,4 +85,3 @@ func CORS(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-

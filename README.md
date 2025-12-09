@@ -1,18 +1,28 @@
 # HelloWorld AI
 
-A Go-based API server with embedded web UI for interacting with local LLMs via llama.cpp.
+A Go-based API server with embedded web UI for interacting with local LLMs via llama.cpp. The project implements a RAG (Retrieval-Augmented Generation) system that indexes markdown notes from vaults and enables question-answering over the indexed content.
 
 ## Architecture
 
 The application consists of a single binary:
 
-- **API Server** (`cmd/api`) - Provides the `/api/chat` endpoint and serves the web UI at `/`
+- **API Server** (`cmd/api`) - Provides chat endpoints and serves the web UI at `/`
 - The web UI is a simple HTML page embedded in the Go binary
+
+### Technology Stack
+
+- **Language:** Go 1.25.3+
+- **UI:** Single embedded HTML page served by Go
+- **Model Runtime:** llama.cpp with OpenAI-compatible HTTP API
+- **Vector DB:** Qdrant (Docker)
+- **Metadata DB:** SQLite
+- **Vaults:** 2 vaults (personal + work)
 
 ## Prerequisites
 
 - Go 1.25.3 or later
 - llama.cpp server running (see `start-llama` target)
+- Qdrant running (Docker)
 - (Optional) Tilt for unified development workflow
 
 ## Quick Start
@@ -26,7 +36,9 @@ tilt up
 ```
 
 This will:
+
 - Start llama.cpp server (port 8080)
+- Start Qdrant (port 6333)
 - Start API server (port 9000) - serves both API and web UI
 - Watch for file changes and auto-reload
 - Provide a web UI at `http://localhost:10350` to view logs and status
@@ -34,6 +46,7 @@ This will:
 Access the application at `http://localhost:9000`
 
 To stop all services:
+
 ```bash
 tilt down
 ```
@@ -46,16 +59,23 @@ tilt down
 make start-llama
 ```
 
-#### 2. Run API server
+#### 2. Start Qdrant
+
+```bash
+docker run -d -p 6333:6333 qdrant/qdrant
+```
+
+#### 3. Run API server
 
 ```bash
 make run-api
 ```
 
 This starts:
+
 - API server on `http://localhost:9000` (serves both API and web UI)
 
-#### 3. Access the UI
+#### 4. Access the UI
 
 Open `http://localhost:9000` in your browser.
 
@@ -70,6 +90,7 @@ API_PORT=9000 go run ./cmd/api
 ```
 
 The API server serves:
+
 - Web UI at `http://localhost:9000/`
 - API endpoint at `http://localhost:9000/api/chat`
 
@@ -77,9 +98,22 @@ The API server serves:
 
 ### API Server Environment Variables
 
+**Required:**
+
+- `VAULT_PERSONAL_PATH` - Path to personal vault directory
+- `VAULT_WORK_PATH` - Path to work vault directory
+- `QDRANT_VECTOR_SIZE` - Vector size for embeddings (must be > 0)
+
+**Optional (with defaults):**
+
 - `LLM_BASE_URL` - Base URL for llama.cpp server (default: `http://localhost:8080`)
 - `LLM_API_KEY` - API key for llama.cpp (default: `dummy-key`)
 - `LLM_MODEL` - Model name to use (default: `local-model`)
+- `EMBEDDING_BASE_URL` - Base URL for embeddings (default: same as `LLM_BASE_URL`)
+- `EMBEDDING_MODEL_NAME` - Model name for embeddings (default: same as `LLM_MODEL`)
+- `DB_PATH` - Path to SQLite database (default: `./data/helloworld-ai.db`)
+- `QDRANT_URL` - Qdrant server URL (default: `http://localhost:6333`)
+- `QDRANT_COLLECTION` - Qdrant collection name (default: `notes`)
 - `API_PORT` - Port for API server (default: `9000`)
 
 ## Building
@@ -101,6 +135,7 @@ make build-api      # Builds bin/helloworld-ai-api
 ### Using Tilt (Recommended)
 
 Tilt provides the best development experience:
+
 - Automatic rebuilds on file changes (Go)
 - Unified log viewing for all services
 - Dependency management (llama server starts first)
@@ -129,15 +164,18 @@ make deps     # Install Go dependencies
 GOOS=linux GOARCH=amd64 make build-api
 ```
 
-2. Copy binary to your server:
+1. Copy binary to your server:
 
 ```bash
 scp bin/helloworld-ai-api user@server:~/helloworld-ai/
 ```
 
-3. Run on server:
+1. Run on server:
 
 ```bash
+VAULT_PERSONAL_PATH=/path/to/personal \
+VAULT_WORK_PATH=/path/to/work \
+QDRANT_VECTOR_SIZE=768 \
 LLM_BASE_URL=http://localhost:8080 \
 LLM_API_KEY=dummy-key \
 LLM_MODEL=local-model \
@@ -149,13 +187,14 @@ The server will serve both the API and web UI on the same port.
 
 ## Project Structure
 
-```
+```text
 helloworld-ai/
 ├── cmd/
 │   └── api/          # API server binary (serves API and web UI)
 ├── internal/
 │   ├── handlers/     # HTTP handlers (ingress layer)
 │   ├── service/      # Business logic (service layer)
+│   ├── storage/      # Database operations (storage layer)
 │   └── llm/          # LLM client (external service layer)
 ├── index.html        # Web UI (embedded in binary)
 └── Makefile
@@ -165,8 +204,7 @@ helloworld-ai/
 
 - **Ingress Layer** (`internal/handlers`) - HTTP request/response handling
 - **Service Layer** (`internal/service`) - Business logic and domain models
+- **Storage Layer** (`internal/storage`) - Database operations and repositories
 - **External Service Layer** (`internal/llm`) - llama.cpp API client
 
-See `.cursor/commands/go-standards.md` for detailed architecture guidelines.
-
-
+See `AGENTS.md` for detailed architecture guidelines and coding standards.
