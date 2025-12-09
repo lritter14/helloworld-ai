@@ -5,12 +5,39 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"helloworld-ai/internal/llm"
 	"helloworld-ai/internal/storage"
 	"helloworld-ai/internal/vectorstore"
 )
+
+const (
+	minAutoK                = 3
+	defaultAutoK            = 5
+	maxAutoK                = 8
+	candidateKPerScope      = 15
+	maxCandidates           = 200
+	rerankKeep              = maxAutoK
+	vectorScoreWeight       = 0.7
+	lexicalScoreWeight      = 0.3
+	minVectorScoreThreshold = 0.3
+	minFinalScoreThreshold  = 0.4
+)
+
+type rerankCandidate struct {
+	result       vectorstore.SearchResult
+	chunk        *storage.ChunkRecord
+	vaultName    string
+	relPath      string
+	headingPath  string
+	chunkIndex   int
+	vectorScore  float32
+	lexicalScore float32
+	finalScore   float32
+	originalRank int
+}
 
 // Engine provides RAG (Retrieval-Augmented Generation) functionality.
 type Engine interface {
@@ -372,14 +399,22 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		}
 	}
 
-	// Default K to 5, enforce max 20
-	k := req.K
-	if k == 0 {
-		k = 5
+	autoK := determineAutoK(req.Question, req.Folders, req.Detail)
+	userHintK := clampUserProvidedK(req.K)
+	targetK := autoK
+	kSource := "auto"
+	if userHintK > 0 {
+		targetK = userHintK
+		kSource = "user_override"
 	}
-	if k > 20 {
-		k = 20
-	}
+
+	logger.InfoContext(ctx, "k selection completed",
+		"auto_k", autoK,
+		"user_hint_k", userHintK,
+		"target_k", targetK,
+		"detail_hint", req.Detail,
+		"k_source", kSource,
+	)
 
 	// Get all unique folders for selected vaults
 	availableFolders, err := e.noteRepo.ListUniqueFolders(ctx, vaultIDs)
@@ -409,7 +444,12 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	// Search vector store - search each vault and folder separately
 	var allSearchResults []vectorstore.SearchResult
-	logger.InfoContext(ctx, "searching vector store", "vault_count", len(vaultIDs), "vault_ids", vaultIDs, "folder_count", len(orderedFolders))
+	logger.InfoContext(ctx, "searching vector store",
+		"vault_count", len(vaultIDs),
+		"vault_ids", vaultIDs,
+		"folder_count", len(orderedFolders),
+		"candidate_k_per_scope", candidateKPerScope,
+	)
 
 	// If no folders selected (neither user nor LLM selected any), search all folders (no folder filter)
 	if len(orderedFolders) == 0 {
@@ -419,8 +459,8 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 			filters["vault_id"] = vaultID
 			// No folder filter means search all folders
 
-			logger.DebugContext(ctx, "searching vault (all folders)", "vault_id", vaultID, "k", k)
-			results, err := e.vectorStore.Search(ctx, e.collection, queryVector, k, filters)
+			logger.DebugContext(ctx, "searching vault (all folders)", "vault_id", vaultID, "k", candidateKPerScope)
+			results, err := e.vectorStore.Search(ctx, e.collection, queryVector, candidateKPerScope, filters)
 			if err != nil {
 				logger.ErrorContext(ctx, "failed to search vector store", "vault_id", vaultID, "error", err)
 				// Continue with other vaults
@@ -473,8 +513,8 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 				folderWeight = 0.1 // Minimum weight
 			}
 
-			logger.DebugContext(ctx, "searching folder", "vault_id", vaultID, "folder", folder, "folder_index", folderIdx, "weight", folderWeight, "k", k)
-			results, err := e.vectorStore.Search(ctx, e.collection, queryVector, k, filters)
+			logger.DebugContext(ctx, "searching folder", "vault_id", vaultID, "folder", folder, "folder_index", folderIdx, "weight", folderWeight, "k", candidateKPerScope)
+			results, err := e.vectorStore.Search(ctx, e.collection, queryVector, candidateKPerScope, filters)
 			if err != nil {
 				logger.ErrorContext(ctx, "failed to search vector store", "vault_id", vaultID, "folder", folder, "error", err)
 				// Continue with other folders
@@ -500,55 +540,16 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		}
 	}
 
-	// Sort by score (descending)
-	for i := 0; i < len(deduplicated)-1; i++ {
-		for j := i + 1; j < len(deduplicated); j++ {
-			if deduplicated[i].Score < deduplicated[j].Score {
-				deduplicated[i], deduplicated[j] = deduplicated[j], deduplicated[i]
-			}
-		}
-	}
+	sort.Slice(deduplicated, func(i, j int) bool {
+		return deduplicated[i].Score > deduplicated[j].Score
+	})
 
-	// Filter out low-relevance results by score threshold
-	const minScoreThreshold = float32(0.55)
-	beforeFilterCount := len(deduplicated)
-	filtered := make([]vectorstore.SearchResult, 0, len(deduplicated))
-	for _, result := range deduplicated {
-		if result.Score >= minScoreThreshold {
-			filtered = append(filtered, result)
-		} else {
-			logger.DebugContext(ctx, "filtering out low-score result",
-				"score", result.Score,
-				"point_id", result.PointID,
-			)
-		}
-	}
-	deduplicated = filtered
-
-	logger.InfoContext(ctx, "filtered results by score threshold",
-		"before_filter", beforeFilterCount,
-		"after_filter", len(filtered),
-		"min_threshold", minScoreThreshold,
+	logger.InfoContext(ctx, "deduplicated vector results",
+		"raw_count", len(allSearchResults),
+		"deduplicated_count", len(deduplicated),
 	)
 
-	// Take top K results
-	if len(deduplicated) > k {
-		deduplicated = deduplicated[:k]
-	}
-	allSearchResults = deduplicated
-
-	searchResults := allSearchResults
-
-	logger.InfoContext(ctx, "vector search completed", "results_count", len(searchResults), "k_requested", k)
-	if len(searchResults) > 0 {
-		topScores := make([]float32, 0, 3)
-		for i := 0; i < len(searchResults) && i < 3; i++ {
-			topScores = append(topScores, searchResults[i].Score)
-		}
-		logger.DebugContext(ctx, "top search results", "top_3_scores", topScores)
-	}
-
-	if len(searchResults) == 0 {
+	if len(deduplicated) == 0 {
 		logger.InfoContext(ctx, "no search results found")
 		return AskResponse{
 			Answer:     "I couldn't find any relevant information in your notes to answer this question.",
@@ -556,57 +557,175 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		}, nil
 	}
 
-	// Fetch chunk texts from database
+	if len(deduplicated) > maxCandidates {
+		logger.InfoContext(ctx, "trimming candidates to global cap",
+			"before_trim", len(deduplicated),
+			"cap", maxCandidates,
+		)
+		deduplicated = deduplicated[:maxCandidates]
+	}
+
+	// Fetch chunk texts and compute lexical scores for reranking
+	candidates := make([]rerankCandidate, 0, len(deduplicated))
+	for idx, result := range deduplicated {
+		vectorScore := result.Score
+		if vectorScore < minVectorScoreThreshold {
+			logger.DebugContext(ctx, "skipping candidate below vector threshold",
+				"point_id", result.PointID,
+				"vector_score", vectorScore,
+			)
+			continue
+		}
+
+		chunk, err := e.chunkRepo.GetByID(ctx, result.PointID)
+		if err != nil {
+			logger.WarnContext(ctx, "failed to fetch chunk text during rerank", "chunk_id", result.PointID, "error", err)
+			continue
+		}
+
+		vaultName, _ := result.Meta["vault_name"].(string)
+		relPath, _ := result.Meta["rel_path"].(string)
+		headingPath := chunk.HeadingPath
+		if headingPath == "" {
+			headingPath, _ = result.Meta["heading_path"].(string)
+		}
+		chunkIndex := chunk.ChunkIndex
+		if chunkIndex == 0 {
+			if chunkIndexFloat, ok := result.Meta["chunk_index"].(float64); ok {
+				chunkIndex = int(chunkIndexFloat)
+			}
+		}
+
+		lexScore := lexicalScore(req.Question, chunk.Text, headingPath)
+		finalScore := combineScores(vectorScore, lexScore)
+		candidates = append(candidates, rerankCandidate{
+			result:       result,
+			chunk:        chunk,
+			vaultName:    vaultName,
+			relPath:      relPath,
+			headingPath:  headingPath,
+			chunkIndex:   chunkIndex,
+			vectorScore:  vectorScore,
+			lexicalScore: lexScore,
+			finalScore:   finalScore,
+			originalRank: idx + 1,
+		})
+	}
+
+	if len(candidates) == 0 {
+		logger.InfoContext(ctx, "no candidates passed vector threshold after rerank preparation")
+		return AskResponse{
+			Answer:     "I couldn't find any relevant information in your notes to answer this question.",
+			References: []Reference{},
+		}, nil
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].finalScore == candidates[j].finalScore {
+			return candidates[i].vectorScore > candidates[j].vectorScore
+		}
+		return candidates[i].finalScore > candidates[j].finalScore
+	})
+
+	filteredCandidates := make([]rerankCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if candidate.finalScore < minFinalScoreThreshold {
+			logger.DebugContext(ctx, "candidate dropped by final score",
+				"point_id", candidate.result.PointID,
+				"final_score", candidate.finalScore,
+				"vector_score", candidate.vectorScore,
+				"lexical_score", candidate.lexicalScore,
+			)
+			continue
+		}
+		filteredCandidates = append(filteredCandidates, candidate)
+	}
+
+	logger.InfoContext(ctx, "rerank completed",
+		"candidates_considered", len(candidates),
+		"candidates_after_threshold", len(filteredCandidates),
+		"target_k", targetK,
+	)
+
+	if len(filteredCandidates) == 0 {
+		logger.InfoContext(ctx, "no candidates met final score threshold")
+		return AskResponse{
+			Answer:     "I couldn't find any relevant information in your notes to answer this question.",
+			References: []Reference{},
+		}, nil
+	}
+
+	// Determine final chunk count respecting rerank cap
+	finalCount := targetK
+	if finalCount > rerankKeep {
+		finalCount = rerankKeep
+	}
+	if finalCount > len(filteredCandidates) {
+		finalCount = len(filteredCandidates)
+	}
+	if finalCount <= 0 {
+		finalCount = len(filteredCandidates)
+	}
+
+	selectedCandidates := filteredCandidates[:finalCount]
+
+	// Log top candidate scores to aid tuning
+	logPreview := make([]map[string]any, 0, len(selectedCandidates))
+	for i := 0; i < len(selectedCandidates) && i < 5; i++ {
+		candidate := selectedCandidates[i]
+		logPreview = append(logPreview, map[string]any{
+			"rank":          i + 1,
+			"point_id":      candidate.result.PointID,
+			"vector_score":  candidate.vectorScore,
+			"lexical_score": candidate.lexicalScore,
+			"final_score":   candidate.finalScore,
+		})
+	}
+	logger.DebugContext(ctx, "top reranked candidates", "preview", logPreview)
+
 	type chunkData struct {
 		text        string
 		vaultName   string
 		relPath     string
 		headingPath string
 		chunkIndex  int
+		result      vectorstore.SearchResult
 	}
 
-	chunks := make([]chunkData, 0, len(searchResults))
-	for i, result := range searchResults {
-		// Extract metadata from search result
-		vaultName, _ := result.Meta["vault_name"].(string)
-		relPath, _ := result.Meta["rel_path"].(string)
-		headingPath, _ := result.Meta["heading_path"].(string)
-		chunkIndexFloat, _ := result.Meta["chunk_index"].(float64)
-		chunkIndex := int(chunkIndexFloat)
-
-		// Fetch chunk text from database
-		chunk, err := e.chunkRepo.GetByID(ctx, result.PointID)
-		if err != nil {
-			logger.WarnContext(ctx, "failed to fetch chunk text", "chunk_id", result.PointID, "error", err)
-			continue // Skip this chunk
-		}
-
+	chunks := make([]chunkData, 0, len(selectedCandidates))
+	for rank, candidate := range selectedCandidates {
 		chunks = append(chunks, chunkData{
-			text:        chunk.Text,
-			vaultName:   vaultName,
-			relPath:     relPath,
-			headingPath: headingPath,
-			chunkIndex:  chunkIndex,
+			text:        candidate.chunk.Text,
+			vaultName:   candidate.vaultName,
+			relPath:     candidate.relPath,
+			headingPath: candidate.headingPath,
+			chunkIndex:  candidate.chunkIndex,
+			result:      candidate.result,
 		})
 
-		// Log chunk details for debugging
-		textPreview := chunk.Text
+		textPreview := candidate.chunk.Text
 		if len(textPreview) > 100 {
 			textPreview = textPreview[:100] + "..."
 		}
-		logger.DebugContext(ctx, "retrieved chunk",
-			"rank", i+1,
-			"score", result.Score,
-			"vault", vaultName,
-			"rel_path", relPath,
-			"heading_path", headingPath,
-			"chunk_index", chunkIndex,
+		logger.DebugContext(ctx, "selected chunk",
+			"rank", rank+1,
+			"final_score", candidate.finalScore,
+			"vector_score", candidate.vectorScore,
+			"lexical_score", candidate.lexicalScore,
+			"vault", candidate.vaultName,
+			"rel_path", candidate.relPath,
+			"heading_path", candidate.headingPath,
+			"chunk_index", candidate.chunkIndex,
 			"text_preview", textPreview,
-			"text_length", len(chunk.Text),
+			"text_length", len(candidate.chunk.Text),
 		)
 	}
 
-	logger.InfoContext(ctx, "chunks retrieved from database", "total_chunks", len(chunks), "search_results", len(searchResults))
+	logger.InfoContext(ctx, "chunks selected after rerank",
+		"total_selected", len(chunks),
+		"requested_k", targetK,
+		"rerank_cap", rerankKeep,
+	)
 
 	// Format context string
 	var contextBuilder strings.Builder
@@ -682,4 +801,95 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		Answer:     answer,
 		References: references,
 	}, nil
+}
+
+func combineScores(vectorScore, lexicalScore float32) float32 {
+	return (vectorScore * vectorScoreWeight) + (lexicalScore * lexicalScoreWeight)
+}
+
+var broadQueryKeywords = []string{
+	"overview", "summary", "summaries", "all", "everything", "compare", "comparison",
+	"list", "recap", "broad", "topics", "outline",
+}
+
+func clampAutoK(value int) int {
+	if value < minAutoK {
+		return minAutoK
+	}
+	if value > maxAutoK {
+		return maxAutoK
+	}
+	return value
+}
+
+func clampUserProvidedK(value int) int {
+	if value <= 0 {
+		return 0
+	}
+	if value < minAutoK {
+		return minAutoK
+	}
+	if value > maxAutoK {
+		return maxAutoK
+	}
+	return value
+}
+
+func determineAutoK(question string, folders []string, detail string) int {
+	k := defaultAutoK
+	switch strings.ToLower(detail) {
+	case "brief":
+		k = minAutoK
+	case "detailed":
+		k = maxAutoK
+	case "normal":
+		k = defaultAutoK
+	}
+
+	meaningfulTokens, uniqueTokenCount := analyzeQuestionTokens(question)
+
+	if len(meaningfulTokens) >= 12 || uniqueTokenCount >= 10 {
+		k++
+	} else if len(meaningfulTokens) > 0 && len(meaningfulTokens) <= 4 {
+		k--
+	}
+
+	lowerQuestion := strings.ToLower(question)
+	containsBroadKeyword := false
+	for _, kw := range broadQueryKeywords {
+		if strings.Contains(lowerQuestion, kw) {
+			containsBroadKeyword = true
+			k++
+			break
+		}
+	}
+
+	if strings.Count(question, "?") > 1 {
+		k++
+	}
+	if len(question) > 200 {
+		k++
+	}
+	if len(folders) > 0 && !containsBroadKeyword {
+		k--
+	}
+
+	return clampAutoK(k)
+}
+
+func analyzeQuestionTokens(question string) ([]string, int) {
+	tokens := tokenize(question)
+	if len(tokens) == 0 {
+		return nil, 0
+	}
+	meaningful := filterStopwords(tokens)
+	if len(meaningful) == 0 {
+		return nil, 0
+	}
+
+	unique := make(map[string]struct{}, len(meaningful))
+	for _, token := range meaningful {
+		unique[token] = struct{}{}
+	}
+	return meaningful, len(unique)
 }

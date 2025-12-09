@@ -10,11 +10,12 @@
 llama_server_path = "../llama.cpp/build/bin/llama-server"
 
 # Chat Server Configuration
-llama_chat_model_path = "../llama.cpp/models/bartowski_Meta-Llama-3.1-8B-Instruct-GGUF_Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+llama_chat_model_path = "../llama.cpp/models/bartowski_Qwen2.5-14B-Instruct-GGUF_Qwen2.5-14B-Instruct-Q4_K_M.gguf"
 llama_chat_port = 8080
 
 # Embeddings Server Configuration
-llama_embeddings_model_path = "../llama.cpp/models/bartowski_granite-embedding-278m-multilingual-GGUF_granite-embedding-278m-multilingual-Q5_K_L.gguf"
+llama_embeddings_model_path = "../llama.cpp/models/ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf"
+# llama_embeddings_model_path = "../llama.cpp/models/bartowski_granite-embedding-278m-multilingual-GGUF_granite-embedding-278m-multilingual-Q5_K_L.gguf"
 llama_embeddings_port = 8081
 
 # API Server Configuration
@@ -71,7 +72,13 @@ local_resource(
             exit 1
         else
             echo "Starting llama.cpp chat server on port %d with model %s"
-            %s -m %s --port %d
+            %s -m %s \
+              --port %d \
+              --host 127.0.0.1 \
+              --ctx-size 8192 \
+              --threads 8 \
+              --batch-size 384 \
+              --ubatch-size 96
         fi
         """ % (
             llama_server_path, llama_server_path,
@@ -91,7 +98,6 @@ local_resource(
         period_secs=3,
     ),
 )
-
 # ============================================================================
 # llama.cpp Embeddings Server (Infrastructure Dependency)
 # ============================================================================
@@ -112,9 +118,14 @@ local_resource(
             exit 1
         else
             echo "Starting llama.cpp embeddings server on port %d with model %s"
-            # Note: --ctx-size 2048 is set but granite-embedding-278m-multilingual enforces n_ctx=512 tokens (hard limit).
-            # The model will reject inputs exceeding 512 tokens regardless of this flag.
-            %s -m %s --port %d --embedding --pooling mean --ubatch-size 2048 --ctx-size 2048
+            # EmbeddingGemma-300M supports a 2048-token context window, so --ctx-size 2048 is fine.
+            %s -m %s \
+              --port %d \
+              --host 127.0.0.1 \
+              --embedding \
+              --pooling mean \
+              --ubatch-size 2048 \
+              --ctx-size 2048
         fi
         """ % (
             llama_server_path, llama_server_path,

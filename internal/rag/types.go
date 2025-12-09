@@ -8,8 +8,10 @@ type AskRequest struct {
 	Vaults []string `json:"vaults,omitempty"`
 	// Folders specifies folder filters using prefix matching. If empty, searches all folders.
 	Folders []string `json:"folders,omitempty"`
-	// K specifies the number of chunks to retrieve. Defaults to 5, max 20.
+	// K optionally specifies the desired chunk count. Auto-selection overrides this unless explicitly provided.
 	K int `json:"k,omitempty"`
+	// Detail optionally hints at answer length ("brief", "normal", "detailed").
+	Detail string `json:"detail,omitempty"`
 }
 
 // Reference represents a reference to a chunk that was used in the answer.

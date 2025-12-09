@@ -61,6 +61,11 @@
           },
           "x-go-name": "Folders"
         },
+        "detail": {
+          "description": "Optional answer detail hint (brief, normal, detailed).",
+          "type": "string",
+          "x-go-name": "Detail"
+        },
         "k": {
           "type": "integer",
           "format": "int64",

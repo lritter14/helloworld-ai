@@ -87,6 +87,32 @@
         .filter-input::placeholder {
             color: #666;
         }
+        .detail-options {
+            display: flex;
+            gap: 10px;
+        }
+        .detail-option {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: #1a1a1a;
+            border: 1px solid #3a3a3a;
+            border-radius: 6px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+        .detail-option input {
+            cursor: pointer;
+        }
+        .detail-option input:checked + span {
+            color: #4a9eff;
+            font-weight: 600;
+        }
+        .detail-option:hover {
+            border-color: #4a9eff;
+        }
         .output {
             background: #2a2a2a;
             border: 1px solid #3a3a3a;
@@ -267,8 +293,21 @@
                 <input type="text" id="folder-filter" class="filter-input" placeholder="e.g., projects, docs">
             </div>
             <div class="filter-group">
-                <div class="filter-label">Number of Chunks (K)</div>
-                <input type="number" id="k-value" class="filter-input" placeholder="5" min="1" max="20" value="5">
+                <div class="filter-label">Answer Detail</div>
+                <div class="detail-options">
+                    <label class="detail-option">
+                        <input type="radio" name="detail-level" value="brief">
+                        <span>Brief</span>
+                    </label>
+                    <label class="detail-option">
+                        <input type="radio" name="detail-level" value="normal" checked>
+                        <span>Normal</span>
+                    </label>
+                    <label class="detail-option">
+                        <input type="radio" name="detail-level" value="detailed">
+                        <span>Detailed</span>
+                    </label>
+                </div>
             </div>
         </div>
         <div id="output" class="output">Ready to ask questions about your notes...</div>
@@ -287,7 +326,7 @@
         const vaultPersonal = document.getElementById('vault-personal');
         const vaultWork = document.getElementById('vault-work');
         const folderFilter = document.getElementById('folder-filter');
-        const kValue = document.getElementById('k-value');
+        const detailRadios = document.querySelectorAll('input[name="detail-level"]');
         let isProcessing = false;
 
         // Configure marked for better formatting
@@ -343,6 +382,15 @@
             return html;
         }
 
+        function getSelectedDetail() {
+            for (const radio of detailRadios) {
+                if (radio.checked) {
+                    return radio.value;
+                }
+            }
+            return 'normal';
+        }
+
         async function sendMessage() {
             const question = input.value.trim();
             if (!question || isProcessing) return;
@@ -360,10 +408,7 @@
             const folderValue = folderFilter.value.trim();
             const folders = folderValue ? [folderValue] : [];
 
-            // Get K value
-            let k = parseInt(kValue.value) || 5;
-            if (k < 1) k = 1;
-            if (k > 20) k = 20;
+            const detailLevel = getSelectedDetail();
 
             // Clear output and show user message
             output.innerHTML = `<span class="message-label">You:</span><div>${escapeHtml(question)}</div><br><span class="message-label">AI:</span><div class="ai-response"><span class="loading">Thinking...</span></div>`;
@@ -375,7 +420,7 @@
                 // Build AskRequest
                 const requestBody = {
                     question: question,
-                    k: k
+                    detail: detailLevel
                 };
 
                 if (vaults.length > 0) {

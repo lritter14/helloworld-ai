@@ -41,6 +41,7 @@ type AskRequest struct {
     Vaults   []string `json:"vaults,omitempty"`
     Folders  []string `json:"folders,omitempty"`
     K        int      `json:"k,omitempty"`
+    Detail   string   `json:"detail,omitempty"` // "brief", "normal", "detailed"
 }
 
 type AskResponse struct {
@@ -105,6 +106,7 @@ type AskRequest struct {
     Vaults   []string `json:"vaults,omitempty"`
     Folders  []string `json:"folders,omitempty"`
     K        int      `json:"k,omitempty"`
+    Detail   string   `json:"detail,omitempty"`
 }
 
 // Parameter documentation (for Swagger)

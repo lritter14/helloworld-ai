@@ -38,7 +38,8 @@ type AskRequest struct {
     Question string   `json:"question"`
     Vaults   []string `json:"vaults,omitempty"`  // Empty = all vaults
     Folders  []string `json:"folders,omitempty"` // Prefix matching
-    K        int      `json:"k,omitempty"`       // Default 5, max 20
+    K        int      `json:"k,omitempty"`       // Legacy manual override (auto-selected otherwise)
+    Detail   string   `json:"detail,omitempty"`  // "brief", "normal", "detailed" hint
 }
 
 type AskResponse struct {
@@ -75,22 +76,40 @@ type Reference struct {
    - Returns ordered list: user folders first, then LLM-ranked folders
    - If no folders selected, search all folders (no folder filter)
 
-4. **Search Vector Store:**
-   - Search each folder separately (with folder filter)
+### Automatic K Selection
+
+- K is now auto-selected per query (min 3, default 5, max 8) before reranking.
+- Heuristics consider:
+  - Answer detail hint (`brief`, `normal`, `detailed`)
+  - Question breadth (length, multiple question marks, broad keywords like "overview"/"everything")
+  - Folder filters (narrow filters nudge K lower)
+- Legacy requests with an explicit `K` still override auto-selection (clamped to 3–8) for backward compatibility.
+
+4. **Search Vector Store + Build Candidate Pool:**
+   - Search each folder separately (with folder filter) using `candidateKPerScope` (15) hits per scope to maximize recall
    - Apply folder position weighting (earlier folders = higher weight)
    - If no folders selected, search all folders per vault (no folder filter)
    - Combine and deduplicate results by PointID
-   - Sort by weighted score (highest first)
-   - **Filter by score threshold:** Remove results below minimum similarity score (0.55)
-   - Take top K results (default 5, max 20)
+   - Sort by weighted vector score, then trim to `maxCandidates` (200) before reranking
+   - Drop any candidate with vector score `< 0.3` to avoid obvious noise
 
-5. **Fetch Chunk Texts:**
+5. **Lexical Rerank:**
+   - Fetch chunk text for each remaining candidate (already required later) and score it with `lexicalScore(question, chunkText, headingPath)`
+   - Lexical scoring details:
+     - Lowercase/tokenize query + chunk text, skip stopwords, count term frequency matches
+     - Normalize matches by chunk length (`lexicalLengthScale = 10`) and clamp to `[0, 0.4]`
+     - Add a small heading bonus (`0.1`) when tokens appear in the heading path
+   - Blend scores: `finalScore = 0.7*vectorScore + 0.3*lexicalScore`
+   - Drop candidates with `finalScore < 0.4`
+   - Sort by `finalScore` and keep up to `rerankKeep` (8) results, respecting the auto-selected `k` (range 3–8, unless a legacy request overrides it)
+
+6. **Fetch Chunk Texts (already available during rerank):**
 
    ```go
    chunk, err := e.chunkRepo.GetByID(ctx, result.PointID)
    ```
 
-6. **Format Context:**
+7. **Format Context:**
 
    ```text
    --- Context from notes ---
@@ -102,7 +121,7 @@ type Reference struct {
    --- End Context ---
    ```
 
-7. **Call LLM:**
+8. **Call LLM:**
 
    ```go
    messages := []llm.Message{
@@ -112,7 +131,7 @@ type Reference struct {
    answer, err := e.llmClient.ChatWithMessages(ctx, messages, params)
    ```
 
-8. **Build References:**
+9. **Build References:**
    Extract metadata from search results to build reference list
 
 ## System Prompt
@@ -181,13 +200,12 @@ for _, vaultID := range vaultIDs {
 - Minimum weight: 0.1
 - Applied to search result scores before deduplication
 
-**Score Threshold Filtering:**
+**Lexical Rerank Filtering:**
 
-- After sorting by weighted score, filter out low-relevance results
-- Minimum similarity score threshold: 0.55
-- Results below threshold are excluded before taking top K
-- Logs filtered results at INFO level, individual filtered chunks at DEBUG level
-- Improves answer quality by excluding tangentially related chunks
+- After dedupe, cap candidates (`maxCandidates = 200`) and score each chunk lexically
+- Blend vector + lexical scores and drop anything below the final threshold (`finalScore < 0.4`)
+- Keep up to `rerankKeep = 8` candidates (bounded by requested `k`)
+- Logs vector vs lexical vs final scores for the top items so weights can be tuned
 
 ## Error Handling
 
@@ -235,7 +253,7 @@ engine := NewEngine(mockEmbedder, mockVectorStore, "collection",
 - Handle multiple vaults by searching separately
 - Use intelligent folder selection (user folders + LLM ranking)
 - Apply folder position weighting to search scores
-- Filter results by score threshold (0.55 minimum) before taking top K
+- Always rerank via lexical score blending before selecting final chunks
 - Format context per plan specification
 - Use exact system prompt from plan
 - Return references from search result metadata

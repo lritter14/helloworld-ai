@@ -126,9 +126,11 @@ API_PORT=9000 go run ./cmd/api
 The API server serves:
 
 - Web UI at `http://localhost:9000/`
-- RAG API endpoint at `http://localhost:9000/api/v1/ask` (question-answering over indexed notes with intelligent folder selection)
+- RAG API endpoint at `http://localhost:9000/api/v1/ask` (question-answering over indexed notes with intelligent folder selection + lexical reranking)
 - Index API endpoint at `http://localhost:9000/api/index` (trigger re-indexing)
 - Swagger JSON spec at `http://localhost:9000/api/docs/swagger.json`
+
+The web UI includes vault/folder filters plus an **Answer Detail** control (Brief / Normal / Detailed) that hints how much supporting context to retrieve for each answer.
 
 When using Tilt, Swagger UI is available at `http://localhost:8082/docs` for interactive API documentation.
 
@@ -363,7 +365,7 @@ All API endpoints are documented using go-swagger annotations. See `internal/han
 - **Ingress Layer** (`internal/handlers`) - HTTP request/response handling with Swagger documentation
 - **HTTP Infrastructure Layer** (`internal/http`) - Router, middleware, and Swagger JSON serving
 - **Service Layer** (`internal/service`) - Business logic and domain models
-- **RAG Layer** (`internal/rag`) - RAG engine for question-answering over indexed notes
+- **RAG Layer** (`internal/rag`) - RAG engine for question-answering over indexed notes (vector search + lexical rerank for higher precision)
 - **Storage Layer** (`internal/storage`) - Database operations and repositories (SQLite)
 - **Vector Store Layer** (`internal/vectorstore`) - Vector database operations (Qdrant)
 - **Vault Layer** (`internal/vault`) - Vault management and file scanning

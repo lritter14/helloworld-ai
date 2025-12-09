@@ -37,6 +37,7 @@ type AskRequest struct {
 	Vaults   []string `json:"vaults,omitempty"`
 	Folders  []string `json:"folders,omitempty"`
 	K        int      `json:"k,omitempty"`
+	Detail   string   `json:"detail,omitempty"`
 }
 
 // AskResponse represents the HTTP response payload for RAG queries.
@@ -158,12 +159,10 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Default K to 5 if zero
-	if req.K == 0 {
-		req.K = 5
+	// Enforce bounds for user-provided K (legacy clients). Zero means "auto".
+	if req.K < 0 {
+		req.K = 0
 	}
-
-	// Enforce max K = 20
 	if req.K > 20 {
 		req.K = 20
 	}
@@ -194,11 +193,19 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Convert HTTP request to RAG request
+	detail := strings.ToLower(strings.TrimSpace(req.Detail))
+	switch detail {
+	case "brief", "normal", "detailed":
+	default:
+		detail = ""
+	}
+
 	ragReq := rag.AskRequest{
 		Question: req.Question,
 		Vaults:   req.Vaults,
 		Folders:  req.Folders,
 		K:        req.K,
+		Detail:   detail,
 	}
 
 	// Call RAG engine
