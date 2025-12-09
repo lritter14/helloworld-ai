@@ -10,6 +10,7 @@ import (
 	"helloworld-ai/internal/http"
 	"helloworld-ai/internal/indexer"
 	"helloworld-ai/internal/llm"
+	"helloworld-ai/internal/rag"
 	"helloworld-ai/internal/service"
 	"helloworld-ai/internal/storage"
 	"helloworld-ai/internal/vault"
@@ -101,10 +102,22 @@ func main() {
 	// Create chat service (business logic layer)
 	chatService := service.NewChatService(llmClient)
 
+	// Create RAG engine
+	ragEngine := rag.NewEngine(
+		embedder,
+		vectorStore,
+		cfg.QdrantCollection,
+		chunkRepo,
+		vaultRepo,
+		llmClient,
+	)
+	log.Printf("RAG engine initialized")
+
 	// Create router with dependencies
 	deps := &http.Deps{
 		ChatService: chatService,
-		RAGEngine:   nil, // Will be set in Phase 7
+		RAGEngine:   ragEngine,
+		VaultRepo:   vaultRepo,
 		IndexHTML:   indexHTML,
 	}
 	router := http.NewRouter(deps)

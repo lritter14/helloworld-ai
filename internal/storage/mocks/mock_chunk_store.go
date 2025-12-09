@@ -55,6 +55,21 @@ func (mr *MockChunkStoreMockRecorder) DeleteByNote(ctx, noteID any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteByNote", reflect.TypeOf((*MockChunkStore)(nil).DeleteByNote), ctx, noteID)
 }
 
+// GetByID mocks base method.
+func (m *MockChunkStore) GetByID(ctx context.Context, id string) (*storage.ChunkRecord, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetByID", ctx, id)
+	ret0, _ := ret[0].(*storage.ChunkRecord)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetByID indicates an expected call of GetByID.
+func (mr *MockChunkStoreMockRecorder) GetByID(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockChunkStore)(nil).GetByID), ctx, id)
+}
+
 // Insert mocks base method.
 func (m *MockChunkStore) Insert(ctx context.Context, chunk *storage.ChunkRecord) error {
 	m.ctrl.T.Helper()

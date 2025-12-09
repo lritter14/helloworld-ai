@@ -17,6 +17,12 @@ type ChatHandler struct {
     logger      *slog.Logger
 }
 
+type AskHandler struct {
+    ragEngine rag.Engine
+    vaultRepo storage.VaultStore
+    logger    *slog.Logger
+}
+
 func (h *ChatHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
     ctx := r.Context()
     logger := h.getLogger(ctx)
@@ -120,10 +126,36 @@ _, _ = fmt.Fprintf(w, "data: %s\n\n", chunk) // Ignore error in streaming
 _, _ = w.Write([]byte(response)) // Ignore error in test scenarios
 ```
 
+## RAG Handler (AskHandler)
+
+The `AskHandler` handles RAG queries via `/api/v1/ask`:
+
+```go
+func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    // Parse AskRequest JSON
+    // Validate: question required, K defaults to 5, max 20
+    // Validate vault names exist (if provided)
+    // Call ragEngine.Ask()
+    // Return AskResponse JSON
+}
+```
+
+**Error Mapping:**
+- HTTP 400: Validation errors (empty question, invalid vaults, K > 20)
+- HTTP 500: RAG engine errors
+- HTTP 502: LLM/embedding errors
+- HTTP 503: Vector store errors
+
+**Validation:**
+- Question required (non-empty)
+- K defaults to 5 if zero, max 20
+- Vault names validated against vaultRepo
+
 ## Rules
 
-- NO business logic - Delegate to service layer immediately
+- NO business logic - Delegate to service/RAG layer immediately
 - Set Content-Type header
 - Extract logger from context
 - Validate HTTP method if needed
+- Validate vault names at ingress layer (AskHandler)
 - Handle all error returns (use `_` for intentional ignores in streaming)

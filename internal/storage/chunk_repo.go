@@ -17,6 +17,8 @@ type ChunkStore interface {
 	DeleteByNote(ctx context.Context, noteID string) error
 	// ListIDsByNote returns all chunk IDs for a given note, ordered by chunk_index.
 	ListIDsByNote(ctx context.Context, noteID string) ([]string, error)
+	// GetByID gets a chunk by its ID. Returns ErrNotFound if not found.
+	GetByID(ctx context.Context, id string) (*ChunkRecord, error)
 }
 
 // ChunkRepo provides methods for chunk operations.
@@ -82,4 +84,22 @@ func (r *ChunkRepo) ListIDsByNote(ctx context.Context, noteID string) ([]string,
 	}
 
 	return ids, nil
+}
+
+// GetByID gets a chunk by its ID. Returns ErrNotFound if not found.
+func (r *ChunkRepo) GetByID(ctx context.Context, id string) (*ChunkRecord, error) {
+	var chunk ChunkRecord
+	err := r.db.QueryRowContext(ctx,
+		"SELECT id, note_id, chunk_index, heading_path, text FROM chunks WHERE id = ?",
+		id,
+	).Scan(&chunk.ID, &chunk.NoteID, &chunk.ChunkIndex, &chunk.HeadingPath, &chunk.Text)
+
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to query chunk: %w", err)
+	}
+
+	return &chunk, nil
 }

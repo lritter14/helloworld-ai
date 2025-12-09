@@ -7,14 +7,17 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"helloworld-ai/internal/handlers"
+	"helloworld-ai/internal/rag"
 	"helloworld-ai/internal/service"
+	"helloworld-ai/internal/storage"
 )
 
 // Deps holds dependencies for the HTTP router.
 type Deps struct {
 	ChatService service.ChatService
-	RAGEngine   interface{} // Will be typed properly in Phase 7
-	IndexHTML   string      // Embedded HTML content
+	RAGEngine   rag.Engine
+	VaultRepo   storage.VaultStore
+	IndexHTML   string // Embedded HTML content
 }
 
 // NewRouter creates a new HTTP router with the provided dependencies.
@@ -33,12 +36,16 @@ func NewRouter(deps *Deps) http.Handler {
 	// Add CORS middleware
 	r.Use(CORS)
 
-	// Create chat handler
+	// Create handlers
 	chatHandler := handlers.NewChatHandler(deps.ChatService)
+	askHandler := handlers.NewAskHandler(deps.RAGEngine, deps.VaultRepo)
 
 	// Register API routes
 	r.Route("/api", func(r chi.Router) {
 		r.Method(http.MethodPost, "/chat", chatHandler)
+		r.Route("/v1", func(r chi.Router) {
+			r.Method(http.MethodPost, "/ask", askHandler)
+		})
 	})
 
 	// Serve HTML page at root

@@ -17,6 +17,13 @@ type NoteStore interface {
     Upsert(ctx context.Context, note *NoteRecord) error
 }
 
+type ChunkStore interface {
+    Insert(ctx context.Context, chunk *ChunkRecord) error
+    DeleteByNote(ctx context.Context, noteID string) error
+    ListIDsByNote(ctx context.Context, noteID string) ([]string, error)
+    GetByID(ctx context.Context, id string) (*ChunkRecord, error) // For RAG queries
+}
+
 type NoteRepo struct {
     db *sql.DB
 }
@@ -107,6 +114,27 @@ defer func() {
 _, _ = db.Exec("DELETE FROM notes") // Ignore error in test cleanup
 ```
 
+## GetByID Pattern
+
+For RAG queries, chunks are retrieved by ID (Qdrant point ID):
+
+```go
+func (r *ChunkRepo) GetByID(ctx context.Context, id string) (*ChunkRecord, error) {
+    var chunk ChunkRecord
+    err := r.db.QueryRowContext(ctx,
+        "SELECT id, note_id, chunk_index, heading_path, text FROM chunks WHERE id = ?",
+        id,
+    ).Scan(&chunk.ID, &chunk.NoteID, &chunk.ChunkIndex, &chunk.HeadingPath, &chunk.Text)
+    
+    if err == sql.ErrNoRows {
+        return nil, ErrNotFound
+    }
+    // ...
+}
+```
+
+Used by RAG engine to fetch chunk text after vector search.
+
 ## Rules
 
 - NO business logic - Only persistence and queries
@@ -115,3 +143,4 @@ _, _ = db.Exec("DELETE FROM notes") // Ignore error in test cleanup
 - Use context-aware operations (`QueryRowContext`, `ExecContext`)
 - Handle all error returns (use `_` for intentional ignores in cleanup)
 - Use temporary directories for test isolation
+- `GetByID` returns full chunk record including text (for RAG)

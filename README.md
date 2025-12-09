@@ -122,7 +122,8 @@ API_PORT=9000 go run ./cmd/api
 The API server serves:
 
 - Web UI at `http://localhost:9000/`
-- API endpoint at `http://localhost:9000/api/chat`
+- Chat API endpoint at `http://localhost:9000/api/chat` (basic LLM chat)
+- RAG API endpoint at `http://localhost:9000/api/v1/ask` (question-answering over indexed notes)
 
 ### Indexing
 
@@ -253,6 +254,7 @@ make lint
 ```
 
 The project follows Go best practices:
+
 - All error returns are properly handled
 - No unused variables or imports
 - Proper error wrapping with context
@@ -302,6 +304,7 @@ helloworld-ai/
 │   ├── vectorstore/  # Vector database operations (Qdrant)
 │   ├── vault/        # Vault manager and file scanner
 │   ├── indexer/      # Markdown chunking and indexing pipeline
+│   ├── rag/          # RAG engine for question-answering
 │   └── llm/          # LLM and embeddings clients (external service layer)
 ├── index.html        # Web UI (embedded in binary)
 └── Makefile
@@ -312,6 +315,7 @@ helloworld-ai/
 - **Configuration Layer** (`internal/config`) - Environment variable and `.env` file loading
 - **Ingress Layer** (`internal/handlers`) - HTTP request/response handling
 - **Service Layer** (`internal/service`) - Business logic and domain models
+- **RAG Layer** (`internal/rag`) - RAG engine for question-answering over indexed notes
 - **Storage Layer** (`internal/storage`) - Database operations and repositories (SQLite)
 - **Vector Store Layer** (`internal/vectorstore`) - Vector database operations (Qdrant)
 - **Vault Layer** (`internal/vault`) - Vault management and file scanning

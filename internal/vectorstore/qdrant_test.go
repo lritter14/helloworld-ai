@@ -12,11 +12,11 @@ import (
 // This avoids connection warnings in unit tests.
 func TestNewQdrantStore_URLParsing(t *testing.T) {
 	tests := []struct {
-		name       string
-		urlStr     string
-		wantErr    bool
-		wantHost   string
-		wantPort   int
+		name     string
+		urlStr   string
+		wantErr  bool
+		wantHost string
+		wantPort int
 	}{
 		{
 			name:     "valid URL",
@@ -228,12 +228,3 @@ func TestConvertPayloadToMap(t *testing.T) {
 		t.Errorf("convertPayloadToMap() with nil should return empty map, got %d items", len(result))
 	}
 }
-
-func TestConvertValue(t *testing.T) {
-	// This is a helper function test - would need Qdrant types to fully test
-	// convertValue expects a non-nil *qdrant.Value, so we can't easily test it without Qdrant types
-	// This test just verifies the function exists and can be called
-	// Full testing would require creating actual Qdrant Value types
-	t.Skip("convertValue requires Qdrant types to test properly")
-}
-

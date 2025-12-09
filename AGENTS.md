@@ -124,7 +124,38 @@ Services follow a distinct layered architecture pattern that promotes separation
 
 **See:** `internal/indexer/AGENTS.md` for detailed patterns.
 
-### 1.5 Service Layer (`internal/service`)
+### 1.5 RAG Layer (`internal/rag`)
+
+**Purpose:** Provide RAG (Retrieval-Augmented Generation) functionality for question-answering over indexed notes.
+
+**Responsibilities:**
+
+- Embed user questions for semantic search
+- Retrieve relevant chunks from vector store using similarity search
+- Format context from retrieved chunks
+- Generate answers using LLM with context
+- Build references to source chunks
+
+**Guidelines:**
+
+- Use embeddings client to embed questions
+- Build filters for vault and folder scoping
+- Handle multiple vaults by searching each separately and combining results
+- Format context per plan specification (vault, file, section, content)
+- Use exact system prompt from plan
+- Return references extracted from search result metadata
+- Fetch chunk text from database using chunk IDs from vector search
+
+**Key Features:**
+
+- `Engine` - RAG engine interface for question-answering
+- `Ask` - Main method that orchestrates RAG workflow (embed, search, format, generate)
+- `AskRequest` - Request type with question, vaults, folders, and K parameters
+- `AskResponse` - Response type with answer and references
+
+**See:** `internal/rag/AGENTS.md` for detailed patterns.
+
+### 1.6 Service Layer (`internal/service`)
 
 **Purpose:** Contain all business logic and orchestrate operations between layers.
 
@@ -142,7 +173,7 @@ Services follow a distinct layered architecture pattern that promotes separation
 - Use dependency injection for testability (using interfaces)
 - Maintain clear boundaries with other layers
 
-### 1.6 Ingress Layer (`internal/handlers`)
+### 1.7 Ingress Layer (`internal/handlers`)
 
 **Purpose:** Handle protocol-specific communication and translate between external APIs and internal service calls.
 
@@ -458,6 +489,7 @@ Mocks are generated using `go.uber.org/mock` with `//go:generate` directives:
 ```
 
 **Pattern:**
+
 - Place `//go:generate` directive above the interface definition
 - Use `go run go.uber.org/mock/mockgen@latest` for version-independent generation
 - Output to `mocks/` subdirectory within the package
@@ -536,13 +568,14 @@ The project maintains comprehensive test coverage across all packages:
 
 - **Config:** Environment variable loading, validation, `.env` file handling
 - **Service:** Business logic, error handling, logging
-- **Handlers:** HTTP request/response handling, error mapping, streaming
-- **Storage:** Database operations, repository patterns, error handling
+- **Handlers:** HTTP request/response handling, error mapping, streaming, RAG queries
+- **RAG:** RAG engine, question-answering workflow, context formatting
+- **Storage:** Database operations, repository patterns, error handling, GetByID for RAG
 - **LLM:** HTTP client operations, streaming, embeddings
 - **Vector Store:** Qdrant operations, search, filtering
 - **Vault:** File scanning, path resolution, vault management
 - **Indexer:** Markdown chunking, indexing pipeline, change detection
-- **HTTP:** Middleware, router setup, CORS handling
+- **HTTP:** Middleware, router setup, CORS handling, RAG route
 
 ## 14. Linting and Code Quality
 
@@ -667,11 +700,13 @@ The Go service automatically loads `.env` files from the project root. You can r
 
 For detailed patterns specific to each layer, see:
 
-- **Handlers:** `internal/handlers/AGENTS.md` - HTTP handler patterns, DTOs, streaming
+- **Handlers:** `internal/handlers/AGENTS.md` - HTTP handler patterns, DTOs, streaming, RAG handler
 - **Service:** `internal/service/AGENTS.md` - Business logic, domain errors, validation
-- **Storage:** `internal/storage/AGENTS.md` - Repository pattern, database operations
+- **RAG:** `internal/rag/AGENTS.md` - RAG engine patterns, question-answering workflow
+- **Storage:** `internal/storage/AGENTS.md` - Repository pattern, database operations, GetByID for RAG
 - **Vector Store:** `internal/vectorstore/AGENTS.md` - Vector database operations, semantic search
 - **Vault:** `internal/vault/AGENTS.md` - Vault management and file scanning
+- **Indexer:** `internal/indexer/AGENTS.md` - Markdown chunking and indexing pipeline
 - **LLM:** `internal/llm/AGENTS.md` - External service client patterns (chat and embeddings)
-- **HTTP:** `internal/http/AGENTS.md` - Middleware, router setup
+- **HTTP:** `internal/http/AGENTS.md` - Middleware, router setup, RAG route
 - **Config:** `internal/config/AGENTS.md` - Configuration patterns and .env loading
