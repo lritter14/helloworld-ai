@@ -14,6 +14,7 @@ import (
 	"helloworld-ai/internal/indexer"
 	"helloworld-ai/internal/rag"
 	"helloworld-ai/internal/storage"
+	"helloworld-ai/internal/vault"
 )
 
 // Deps holds dependencies for the HTTP router.
@@ -21,6 +22,7 @@ type Deps struct {
 	RAGEngine       rag.Engine
 	VaultRepo       storage.VaultStore
 	IndexerPipeline *indexer.Pipeline
+	VaultManager    *vault.Manager
 }
 
 // NewRouter creates a new HTTP router with the provided dependencies.
@@ -42,6 +44,7 @@ func NewRouter(deps *Deps) http.Handler {
 	// Create handlers
 	askHandler := handlers.NewAskHandler(deps.RAGEngine, deps.VaultRepo)
 	indexHandler := handlers.NewIndexHandler(deps.IndexerPipeline)
+	noteHandler := handlers.NewNoteHandler(deps.VaultManager)
 
 	// Register API routes
 	r.Route("/api", func(r chi.Router) {
@@ -64,6 +67,11 @@ func NewRouter(deps *Deps) http.Handler {
 				_, _ = w.Write(data)
 			})
 		})
+	})
+
+	// Serve note files from vaults
+	r.Route("/notes", func(r chi.Router) {
+		r.Get("/{vault}/*", noteHandler.ServeHTTP)
 	})
 
 	// Serve embedded static assets (index.html, JS, CSS) at /

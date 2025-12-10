@@ -37,6 +37,12 @@ body {
     gap: 24px;
 }
 
+#ask-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
 .hero {
     display: flex;
     align-items: center;
@@ -72,6 +78,7 @@ body {
 }
 
 .filters,
+.output-container,
 .output,
 .input-container textarea,
 .detail-option,
@@ -211,12 +218,48 @@ body {
     border: 1px solid var(--border-color);
     padding: 24px;
     min-height: 400px;
-    max-height: 600px;
-    overflow-y: auto;
+    max-height: none;
+    overflow-y: visible;
     word-wrap: break-word;
     font-size: 14px;
     line-height: 1.8;
     box-shadow: 0 20px 50px rgba(3, 7, 18, 0.5);
+}
+
+.output-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.output-container.hidden {
+    display: none;
+}
+
+.output-heading {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.output-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.output-container.hidden {
+    display: none;
+}
+
+.output-heading {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.65);
 }
 
 .output p {
@@ -292,6 +335,9 @@ body {
 }
 
 .reference-item {
+    display: block;
+    text-decoration: none;
+    color: inherit;
     background: rgba(15, 23, 42, 0.8);
     border: 1px solid var(--border-color);
     padding: 12px 14px;
@@ -305,6 +351,12 @@ body {
 .reference-item:hover {
     border-color: var(--accent);
     transform: translateX(2px);
+}
+
+.reference-item:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3);
 }
 
 .reference-vault {

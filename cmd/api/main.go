@@ -146,6 +146,7 @@ func main() {
 		RAGEngine:       ragEngine,
 		VaultRepo:       vaultRepo,
 		IndexerPipeline: indexerPipeline,
+		VaultManager:    vaultManager,
 	}
 	router := http.NewRouter(deps)
 

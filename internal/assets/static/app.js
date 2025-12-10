@@ -1,11 +1,11 @@
 (() => {
   const API_URL = window.location.origin;
-  const STORAGE_KEY = 'helloworld-ai:last-question';
 
   const askForm = document.getElementById('ask-form');
   const questionInput = document.getElementById('question');
   const statusBanner = document.getElementById('status');
   const output = document.getElementById('output');
+  const outputContainer = document.querySelector('.output-container');
   const submitBtn = document.getElementById('submit-btn');
   const folderInput = document.getElementById('folder-filter');
   const vaultInputs = Array.from(document.querySelectorAll('input[name="vaults"]'));
@@ -14,9 +14,7 @@
   init();
 
   function init() {
-    restoreDraft();
     askForm.addEventListener('submit', handleSubmit);
-    questionInput.addEventListener('input', persistDraft);
     questionInput.addEventListener('keydown', handleKeydown);
   }
 
@@ -37,6 +35,8 @@
     }
 
     const requestPayload = buildRequestPayload(question);
+    clearQuestionInput();
+    showOutput();
     renderPendingExchange(question);
     setLoadingState(true);
 
@@ -153,11 +153,12 @@
         const vault = escapeHtml(ref.vault || 'unknown');
         const relPath = escapeHtml(ref.rel_path || ref.relPath || '');
         const heading = escapeHtml(ref.heading_path || ref.headingPath || '');
+        const href = buildReferenceURL(ref.vault, ref.rel_path || ref.relPath || '');
         return `
-          <div class="reference-item">
+          <a class="reference-item" href="${href}" target="_blank" rel="noopener noreferrer">
             <div><span class="reference-vault">${vault}</span> / <span class="reference-path">${relPath}</span></div>
             <div class="reference-section">${heading}</div>
-          </div>
+          </a>
         `;
       })
       .join('');
@@ -168,6 +169,22 @@
         ${items}
       </div>
     `;
+  }
+
+  function buildReferenceURL(vault, relPath) {
+    if (!vault || !relPath) {
+      return '#';
+    }
+
+    const safeVault = encodeURIComponent(vault);
+    const normalizedPath = (relPath || '').replace(/\\/g, '/');
+    const safePath = normalizedPath
+      .split('/')
+      .filter(Boolean)
+      .map((segment) => encodeURIComponent(segment))
+      .join('/');
+
+    return `/notes/${safeVault}/${safePath}`;
   }
 
   function renderMarkdown(text) {
@@ -207,31 +224,20 @@
   function setLoadingState(isLoading) {
     submitBtn.disabled = isLoading;
     if (isLoading) {
-      statusBanner.textContent = 'Generating answer...';
+      statusBanner.textContent = '';
       statusBanner.classList.remove('error');
-      statusBanner.classList.add('loading');
+      statusBanner.classList.remove('loading');
     } else if (!statusBanner.classList.contains('error')) {
       clearStatus();
     }
   }
 
-  function persistDraft() {
-    try {
-      localStorage.setItem(STORAGE_KEY, questionInput.value);
-    } catch (err) {
-      // Ignore storage failures
-    }
+  function clearQuestionInput() {
+    questionInput.value = '';
   }
 
-  function restoreDraft() {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        questionInput.value = saved;
-      }
-    } catch (err) {
-      // Ignore storage failures
-    }
+  function showOutput() {
+    outputContainer?.classList.remove('hidden');
   }
 
 })();
