@@ -113,6 +113,12 @@ This starts:
 
 Open `http://localhost:9000` in your browser.
 
+### Frontend Assets
+
+- Source files live in `web/static` (`index.html`, `app.js`, `styles.css`). That directory is a symlink to `internal/assets/static`, so edits automatically update the embedded assets.
+- `internal/assets` uses `go:embed` to bundle the static files directly into the API binary. No separate npm build is required.
+- The router serves those assets at `/`, so rebuilding the Go binary is all that’s needed to ship frontend updates.
+
 ## Running
 
 ### API Server

@@ -1,6 +1,7 @@
 package http
 
 import (
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"helloworld-ai/internal/assets"
 	"helloworld-ai/internal/handlers"
 	"helloworld-ai/internal/indexer"
 	"helloworld-ai/internal/rag"
@@ -19,7 +21,6 @@ type Deps struct {
 	RAGEngine       rag.Engine
 	VaultRepo       storage.VaultStore
 	IndexerPipeline *indexer.Pipeline
-	IndexHTML       string // Embedded HTML content
 }
 
 // NewRouter creates a new HTTP router with the provided dependencies.
@@ -65,12 +66,13 @@ func NewRouter(deps *Deps) http.Handler {
 		})
 	})
 
-	// Serve HTML page at root
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(deps.IndexHTML))
-	})
+	// Serve embedded static assets (index.html, JS, CSS) at /
+	staticFS, err := fs.Sub(assets.StaticFS, "static")
+	if err != nil {
+		panic("static assets missing: " + err.Error())
+	}
+	fileServer := http.FileServer(http.FS(staticFS))
+	r.Handle("/*", http.StripPrefix("/", fileServer))
 
 	return r
 }

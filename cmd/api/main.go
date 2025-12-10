@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"log"
 	"log/slog"
 	nethttp "net/http"
@@ -17,9 +16,6 @@ import (
 	"helloworld-ai/internal/vault"
 	"helloworld-ai/internal/vectorstore"
 )
-
-//go:embed index.html
-var indexHTML string
 
 //go:generate swagger generate spec -o swagger.json
 
@@ -150,7 +146,6 @@ func main() {
 		RAGEngine:       ragEngine,
 		VaultRepo:       vaultRepo,
 		IndexerPipeline: indexerPipeline,
-		IndexHTML:       indexHTML,
 	}
 	router := http.NewRouter(deps)
 

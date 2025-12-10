@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HelloWorld AI - RAG Q&A</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <main class="container">
+        <header class="hero">
+            <div class="hero-icon">🗂️</div>
+            <div>
+                <div class="hero-title">Notes AI</div>
+                <div class="hero-subtitle">RAG Q&amp;A</div>
+            </div>
+        </header>
+
+        <form id="ask-form" novalidate>
+            <section class="filters" aria-labelledby="filter-heading">
+                <div class="filter-group">
+                    <div class="filter-label" id="filter-heading">Vaults</div>
+                    <div class="vault-checkboxes">
+                        <label class="checkbox-group pill">
+                            <input type="checkbox" id="vault-personal" name="vaults" value="personal" checked>
+                            <span>Personal</span>
+                        </label>
+                        <label class="checkbox-group pill">
+                            <input type="checkbox" id="vault-work" name="vaults" value="work" checked>
+                            <span>Work</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="filter-group">
+                    <label class="filter-label" for="folder-filter">Folder Filter (optional)</label>
+                    <input type="text" id="folder-filter" class="filter-input" placeholder="e.g., projects, docs">
+                </div>
+
+                <div class="filter-group">
+                    <div class="filter-label">Answer Detail</div>
+                    <div class="detail-options" role="radiogroup" aria-label="Answer detail level">
+                        <label class="detail-option pill">
+                            <input type="radio" name="detail-level" value="brief">
+                            <span>Brief</span>
+                        </label>
+                        <label class="detail-option pill">
+                            <input type="radio" name="detail-level" value="normal" checked>
+                            <span>Normal</span>
+                        </label>
+                        <label class="detail-option pill">
+                            <input type="radio" name="detail-level" value="detailed">
+                            <span>Detailed</span>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            <div id="status" class="status-banner" role="status" aria-live="polite"></div>
+
+            <section id="output" class="output" aria-live="polite">Ready to ask questions about your notes...</section>
+
+            <div class="input-container">
+                <label class="sr-only" for="question">Question</label>
+                <textarea id="question" placeholder="Ask a question about your notes..." rows="4"></textarea>
+                <button id="submit-btn" class="button-primary" type="submit">
+                    <span class="button-icon">✈️</span>
+                    <span>Ask</span>
+                </button>
+            </div>
+        </form>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" integrity="sha384-q/QDYob/oJt2goj2TG2wE8xmPKzW0fvkYl9wH14r2raXIiQunlslqY5T2ddYyJ0M" crossorigin="anonymous"></script>
+    <script src="/app.js" defer></script>
+</body>
+</html>

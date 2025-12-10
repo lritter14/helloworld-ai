@@ -1,17 +1,43 @@
 package http
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"helloworld-ai/internal/indexer"
+	"helloworld-ai/internal/rag"
+	"helloworld-ai/internal/storage"
 )
 
-func TestNewRouter(t *testing.T) {
-	deps := &Deps{
-		IndexHTML: "<html><body>Test</body></html>",
-	}
+type stubRAGEngine struct{}
 
-	router := NewRouter(deps)
+func (stubRAGEngine) Ask(context.Context, rag.AskRequest) (rag.AskResponse, error) {
+	return rag.AskResponse{}, nil
+}
+
+type stubVaultStore struct{}
+
+func (stubVaultStore) GetOrCreateByName(context.Context, string, string) (storage.VaultRecord, error) {
+	return storage.VaultRecord{}, nil
+}
+
+func (stubVaultStore) ListAll(context.Context) ([]storage.VaultRecord, error) {
+	return []storage.VaultRecord{}, nil
+}
+
+func newTestDeps() *Deps {
+	return &Deps{
+		RAGEngine:       stubRAGEngine{},
+		VaultRepo:       stubVaultStore{},
+		IndexerPipeline: &indexer.Pipeline{},
+	}
+}
+
+func TestNewRouter(t *testing.T) {
+	router := NewRouter(newTestDeps())
 
 	if router == nil {
 		t.Fatal("NewRouter() returned nil")
@@ -19,11 +45,7 @@ func TestNewRouter(t *testing.T) {
 }
 
 func TestRouter_Routes(t *testing.T) {
-	deps := &Deps{
-		IndexHTML: "<html><body>Test</body></html>",
-	}
-
-	router := NewRouter(deps)
+	router := NewRouter(newTestDeps())
 
 	tests := []struct {
 		name       string
@@ -31,12 +53,6 @@ func TestRouter_Routes(t *testing.T) {
 		path       string
 		wantStatus int
 	}{
-		{
-			name:       "GET root serves HTML",
-			method:     http.MethodGet,
-			path:       "/",
-			wantStatus: http.StatusOK,
-		},
 		{
 			name:       "POST /api/v1/ask exists",
 			method:     http.MethodPost,
@@ -66,12 +82,7 @@ func TestRouter_Routes(t *testing.T) {
 }
 
 func TestRouter_RootServesHTML(t *testing.T) {
-	htmlContent := "<html><body>Test HTML</body></html>"
-	deps := &Deps{
-		IndexHTML: htmlContent,
-	}
-
-	router := NewRouter(deps)
+	router := NewRouter(newTestDeps())
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
@@ -82,21 +93,14 @@ func TestRouter_RootServesHTML(t *testing.T) {
 		t.Errorf("Router GET / status = %v, want %v", w.Code, http.StatusOK)
 	}
 
-	if w.Body.String() != htmlContent {
-		t.Errorf("Router GET / body = %v, want %v", w.Body.String(), htmlContent)
-	}
-
-	if w.Header().Get("Content-Type") != "text/html; charset=utf-8" {
-		t.Errorf("Router GET / Content-Type = %v, want text/html; charset=utf-8", w.Header().Get("Content-Type"))
+	body := w.Body.String()
+	if !strings.Contains(body, "<!DOCTYPE html>") {
+		t.Errorf("Router GET / body did not include HTML, got %q", body[:min(len(body), 100)])
 	}
 }
 
 func TestRouter_MiddlewareApplied(t *testing.T) {
-	deps := &Deps{
-		IndexHTML: "<html></html>",
-	}
-
-	router := NewRouter(deps)
+	router := NewRouter(newTestDeps())
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/ask", nil)
 	w := httptest.NewRecorder()
@@ -107,4 +111,11 @@ func TestRouter_MiddlewareApplied(t *testing.T) {
 	if w.Header().Get("Access-Control-Allow-Origin") == "" {
 		t.Error("Router should apply CORS middleware")
 	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
