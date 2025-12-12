@@ -12,9 +12,11 @@ import (
 	"helloworld-ai/internal/assets"
 	"helloworld-ai/internal/handlers"
 	"helloworld-ai/internal/indexer"
+	"helloworld-ai/internal/llm"
 	"helloworld-ai/internal/rag"
 	"helloworld-ai/internal/storage"
 	"helloworld-ai/internal/vault"
+	"helloworld-ai/internal/vectorstore"
 )
 
 // Deps holds dependencies for the HTTP router.
@@ -23,6 +25,9 @@ type Deps struct {
 	VaultRepo       storage.VaultStore
 	IndexerPipeline *indexer.Pipeline
 	VaultManager    *vault.Manager
+	VectorStore     vectorstore.VectorStore
+	LLMClient       *llm.Client
+	CollectionName  string
 }
 
 // NewRouter creates a new HTTP router with the provided dependencies.
@@ -42,12 +47,14 @@ func NewRouter(deps *Deps) http.Handler {
 	r.Use(CORS)
 
 	// Create handlers
+	healthHandler := handlers.NewHealthHandler(deps.VectorStore, deps.LLMClient, deps.CollectionName)
 	askHandler := handlers.NewAskHandler(deps.RAGEngine, deps.VaultRepo)
 	indexHandler := handlers.NewIndexHandler(deps.IndexerPipeline)
 	noteHandler := handlers.NewNoteHandler(deps.VaultManager)
 
-	// Register API routes
+	// Register API routes (health check first for monitoring systems)
 	r.Route("/api", func(r chi.Router) {
+		r.Method(http.MethodGet, "/health", healthHandler)
 		r.Method(http.MethodPost, "/index", indexHandler) // Re-index endpoint
 		r.Route("/v1", func(r chi.Router) {
 			r.Method(http.MethodPost, "/ask", askHandler)

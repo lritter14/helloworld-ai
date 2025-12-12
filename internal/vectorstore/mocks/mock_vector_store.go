@@ -41,6 +41,21 @@ func (m *MockVectorStore) EXPECT() *MockVectorStoreMockRecorder {
 	return m.recorder
 }
 
+// CollectionExists mocks base method.
+func (m *MockVectorStore) CollectionExists(ctx context.Context, collection string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CollectionExists", ctx, collection)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CollectionExists indicates an expected call of CollectionExists.
+func (mr *MockVectorStoreMockRecorder) CollectionExists(ctx, collection any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectionExists", reflect.TypeOf((*MockVectorStore)(nil).CollectionExists), ctx, collection)
+}
+
 // Delete mocks base method.
 func (m *MockVectorStore) Delete(ctx context.Context, collection string, ids []string) error {
 	m.ctrl.T.Helper()

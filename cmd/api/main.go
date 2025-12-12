@@ -117,15 +117,6 @@ func main() {
 		cfg.QdrantCollection,
 	)
 
-	// Index all vaults at startup
-	log.Printf("Starting indexing of vaults...")
-	if err := indexerPipeline.IndexAll(ctx); err != nil {
-		log.Printf("Indexing completed with errors: %v", err)
-		// Don't fail startup - log and continue per Section 0.19
-	} else {
-		log.Printf("Indexing completed successfully")
-	}
-
 	// Create LLM client (external service layer)
 	llmClient := llm.NewClient(cfg.LLMBaseURL, cfg.LLMAPIKey, cfg.LLMModelName)
 
@@ -147,8 +138,22 @@ func main() {
 		VaultRepo:       vaultRepo,
 		IndexerPipeline: indexerPipeline,
 		VaultManager:    vaultManager,
+		VectorStore:     vectorStore,
+		LLMClient:       llmClient,
+		CollectionName:  cfg.QdrantCollection,
 	}
 	router := http.NewRouter(deps)
+
+	// Start indexing in background after router is ready
+	go func() {
+		indexCtx := context.Background()
+		log.Printf("Starting background indexing of vaults...")
+		if err := indexerPipeline.IndexAll(indexCtx); err != nil {
+			log.Printf("Indexing completed with errors: %v", err)
+		} else {
+			log.Printf("Indexing completed successfully")
+		}
+	}()
 
 	// Start API server
 	addr := ":" + cfg.APIPort

@@ -28,5 +28,7 @@ type VectorStore interface {
 
 	// Delete removes points by their IDs.
 	Delete(ctx context.Context, collection string, ids []string) error
-}
 
+	// CollectionExists checks if a collection exists.
+	CollectionExists(ctx context.Context, collection string) (bool, error)
+}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Client is a client for interacting with llama.cpp chat completions API.
@@ -19,13 +20,27 @@ type Client struct {
 	client  *http.Client
 }
 
+// newHTTPClient creates a configured HTTP client with timeouts and connection pooling.
+func newHTTPClient() *http.Client {
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+	}
+
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+	}
+}
+
 // NewClient creates a new LLM client.
 func NewClient(baseURL, apiKey, model string) *Client {
 	return &Client{
 		BaseURL: baseURL,
 		APIKey:  apiKey,
 		Model:   model,
-		client:  http.DefaultClient,
+		client:  newHTTPClient(),
 	}
 }
 

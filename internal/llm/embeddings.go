@@ -27,7 +27,7 @@ func NewEmbeddingsClient(baseURL, apiKey, model string, expectedSize int) *Embed
 		APIKey:       apiKey,
 		Model:        model,
 		ExpectedSize: expectedSize,
-		client:       http.DefaultClient,
+		client:       newHTTPClient(),
 	}
 }
 
@@ -164,4 +164,3 @@ func (c *EmbeddingsClient) EmbedTexts(ctx context.Context, texts []string) ([][]
 
 	return result, nil
 }
-
