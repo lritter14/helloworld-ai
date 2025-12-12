@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 
+	"helloworld-ai/internal/contextutil"
 	"helloworld-ai/internal/rag"
 	"helloworld-ai/internal/storage"
 )
@@ -16,7 +16,6 @@ import (
 type AskHandler struct {
 	ragEngine rag.Engine
 	vaultRepo storage.VaultStore
-	logger    *slog.Logger
 }
 
 // NewAskHandler creates a new AskHandler.
@@ -24,7 +23,6 @@ func NewAskHandler(ragEngine rag.Engine, vaultRepo storage.VaultStore) *AskHandl
 	return &AskHandler{
 		ragEngine: ragEngine,
 		vaultRepo: vaultRepo,
-		logger:    slog.Default(),
 	}
 }
 
@@ -76,18 +74,6 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
-// getLogger extracts logger from context or returns default logger.
-func (h *AskHandler) getLogger(ctx context.Context) *slog.Logger {
-	type loggerKeyType string
-	const loggerKey loggerKeyType = "logger"
-	if ctxLogger := ctx.Value(loggerKey); ctxLogger != nil {
-		if l, ok := ctxLogger.(*slog.Logger); ok {
-			return l
-		}
-	}
-	return h.logger
-}
-
 // ServeHTTP handles HTTP requests for RAG queries.
 //
 // Ask a question to the RAG system and get an answer based on indexed markdown notes.
@@ -137,7 +123,7 @@ func (h *AskHandler) getLogger(ctx context.Context) *slog.Logger {
 //	    "$ref": "#/definitions/ErrorResponse"
 func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	logger := h.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	if r.Method != http.MethodPost {
 		logger.WarnContext(ctx, "method not allowed", "method", r.Method)
@@ -241,7 +227,7 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // handleRAGError maps RAG engine errors to appropriate HTTP status codes.
 func (h *AskHandler) handleRAGError(w http.ResponseWriter, ctx context.Context, err error, defaultMsg string) {
-	logger := h.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 	logger.ErrorContext(ctx, "RAG engine error", "error", err)
 
 	if err == nil {

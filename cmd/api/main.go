@@ -42,20 +42,25 @@ import (
 //   - application/json
 
 func main() {
-	// Configure structured logging with DEBUG level
-	opts := &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	}
-	handler := slog.NewTextHandler(os.Stdout, opts)
-	logger := slog.New(handler)
-	slog.SetDefault(logger)
-	log.Printf("Debug logging enabled")
-
-	// Load configuration
+	// Load configuration first (needed for log level)
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
+
+	// Configure structured logging with configurable level and format
+	opts := &slog.HandlerOptions{
+		Level: cfg.LogLevel,
+	}
+	var handler slog.Handler
+	if cfg.LogFormat == "json" {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	}
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
+	slog.Debug("Logging configured", "level", cfg.LogLevel.String(), "format", cfg.LogFormat)
 
 	// Initialize database
 	db, err := storage.New(cfg.DBPath)
@@ -69,7 +74,7 @@ func main() {
 	if err := storage.Migrate(db); err != nil {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
-	log.Printf("Database initialized at %s", cfg.DBPath)
+	slog.Info("Database initialized", "path", cfg.DBPath)
 
 	// Create repository instances
 	vaultRepo := storage.NewVaultRepo(db)
@@ -84,7 +89,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize vault manager: %v", err)
 	}
-	log.Printf("Vault manager initialized (personal: %s, work: %s)", cfg.VaultPersonalPath, cfg.VaultWorkPath)
+	slog.Info("Vault manager initialized", "personal", cfg.VaultPersonalPath, "work", cfg.VaultWorkPath)
 	vectorStore, err := vectorstore.NewQdrantStore(cfg.QdrantURL)
 	if err != nil {
 		log.Fatalf("Failed to create Qdrant client: %v", err)
@@ -94,7 +99,7 @@ func main() {
 	if err := vectorStore.EnsureCollection(ctx, cfg.QdrantCollection, cfg.QdrantVectorSize); err != nil {
 		log.Fatalf("Failed to ensure Qdrant collection: %v", err)
 	}
-	log.Printf("Qdrant collection '%s' ready (vector size: %d)", cfg.QdrantCollection, cfg.QdrantVectorSize)
+	slog.Info("Qdrant collection ready", "collection", cfg.QdrantCollection, "vector_size", cfg.QdrantVectorSize)
 
 	// Validate embedding client vector size (fail-fast)
 	embedder := llm.NewEmbeddingsClient(cfg.EmbeddingBaseURL, cfg.LLMAPIKey, cfg.EmbeddingModelName, cfg.QdrantVectorSize)
@@ -105,7 +110,7 @@ func main() {
 	if len(testEmbeddings) == 0 || len(testEmbeddings[0]) != cfg.QdrantVectorSize {
 		log.Fatalf("Embedding vector size mismatch: expected %d, got %d", cfg.QdrantVectorSize, len(testEmbeddings[0]))
 	}
-	log.Printf("Embedding client validated (vector size: %d)", cfg.QdrantVectorSize)
+	slog.Info("Embedding client validated", "vector_size", cfg.QdrantVectorSize)
 
 	// Create indexing pipeline
 	indexerPipeline := indexer.NewPipeline(
@@ -130,7 +135,7 @@ func main() {
 		noteRepo,
 		llmClient,
 	)
-	log.Printf("RAG engine initialized")
+	slog.Info("RAG engine initialized")
 
 	// Create router with dependencies
 	deps := &http.Deps{
@@ -147,19 +152,18 @@ func main() {
 	// Start indexing in background after router is ready
 	go func() {
 		indexCtx := context.Background()
-		log.Printf("Starting background indexing of vaults...")
+		slog.Info("Starting background indexing of vaults")
 		if err := indexerPipeline.IndexAll(indexCtx); err != nil {
-			log.Printf("Indexing completed with errors: %v", err)
+			slog.Error("Indexing completed with errors", "error", err)
 		} else {
-			log.Printf("Indexing completed successfully")
+			slog.Info("Indexing completed successfully")
 		}
 	}()
 
 	// Start API server
 	addr := ":" + cfg.APIPort
-	log.Printf("Starting API server on %s", addr)
-	log.Printf("LLM Base URL: %s", cfg.LLMBaseURL)
-	log.Printf("LLM Model: %s", cfg.LLMModelName)
+	slog.Info("Starting API server", "addr", addr)
+	slog.Debug("LLM configuration", "base_url", cfg.LLMBaseURL, "model", cfg.LLMModelName)
 	if err := nethttp.ListenAndServe(addr, router); err != nil {
 		log.Fatalf("API server failed to start: %v", err)
 	}

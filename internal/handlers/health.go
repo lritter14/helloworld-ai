@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"helloworld-ai/internal/contextutil"
 	"helloworld-ai/internal/llm"
 	"helloworld-ai/internal/vectorstore"
 )
@@ -16,7 +17,6 @@ type HealthHandler struct {
 	vectorStore        vectorstore.VectorStore
 	llmClient          *llm.Client
 	collectionName     string
-	logger             *slog.Logger
 	healthCheckTimeout time.Duration
 }
 
@@ -26,7 +26,6 @@ func NewHealthHandler(vectorStore vectorstore.VectorStore, llmClient *llm.Client
 		vectorStore:        vectorStore,
 		llmClient:          llmClient,
 		collectionName:     collectionName,
-		logger:             slog.Default(),
 		healthCheckTimeout: 5 * time.Second,
 	}
 }
@@ -46,18 +45,6 @@ type HealthResponse struct {
 
 	// List of issues (only present if status is degraded or unhealthy)
 	Issues []string `json:"issues,omitempty"`
-}
-
-// getLogger extracts logger from context or returns default logger.
-func (h *HealthHandler) getLogger(ctx context.Context) *slog.Logger {
-	type loggerKeyType string
-	const loggerKey loggerKeyType = "logger"
-	if ctxLogger := ctx.Value(loggerKey); ctxLogger != nil {
-		if l, ok := ctxLogger.(*slog.Logger); ok {
-			return l
-		}
-	}
-	return h.logger
 }
 
 // ServeHTTP handles HTTP requests for health checks.
@@ -86,7 +73,7 @@ func (h *HealthHandler) getLogger(ctx context.Context) *slog.Logger {
 //	    "$ref": "#/definitions/HealthResponse"
 func (h *HealthHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	logger := h.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	if r.Method != http.MethodGet {
 		logger.WarnContext(ctx, "method not allowed", "method", r.Method)

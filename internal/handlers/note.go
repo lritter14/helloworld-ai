@@ -2,11 +2,9 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"html/template"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -20,6 +18,7 @@ import (
 	"github.com/yuin/goldmark/parser"
 	ghhtml "github.com/yuin/goldmark/renderer/html"
 
+	"helloworld-ai/internal/contextutil"
 	"helloworld-ai/internal/vault"
 )
 
@@ -28,7 +27,6 @@ type NoteHandler struct {
 	vaults   *vault.Manager
 	parser   goldmark.Markdown
 	template *template.Template
-	logger   *slog.Logger
 }
 
 // notePageData holds template data for rendered note pages.
@@ -160,14 +158,13 @@ func NewNoteHandler(vaults *vault.Manager) *NoteHandler {
 			),
 		),
 		template: tmpl,
-		logger:   slog.Default(),
 	}
 }
 
 // ServeHTTP renders the requested note file as HTML.
 func (h *NoteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	logger := h.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	rawVault := strings.TrimSpace(chi.URLParam(r, "vault"))
 	vaultName, err := url.PathUnescape(rawVault)
@@ -286,15 +283,4 @@ func inferTitle(rel string) string {
 		return "Note"
 	}
 	return strings.TrimSuffix(base, filepath.Ext(base))
-}
-
-func (h *NoteHandler) getLogger(ctx context.Context) *slog.Logger {
-	type loggerKey string
-	const key loggerKey = "logger"
-	if ctxLogger := ctx.Value(key); ctxLogger != nil {
-		if l, ok := ctxLogger.(*slog.Logger); ok {
-			return l
-		}
-	}
-	return h.logger
 }

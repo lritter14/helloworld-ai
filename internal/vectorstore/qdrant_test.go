@@ -2,7 +2,6 @@ package vectorstore
 
 import (
 	"context"
-	"log/slog"
 	"net/url"
 	"strconv"
 	"testing"
@@ -153,27 +152,10 @@ func TestNewQdrantStore_PortDerivation(t *testing.T) {
 	}
 }
 
-func TestQdrantStore_getLogger(t *testing.T) {
-	store := &QdrantStore{logger: slog.Default()}
-
-	ctx := context.Background()
-	logger := store.getLogger(ctx)
-	if logger == nil {
-		t.Error("getLogger() should return logger when store has logger set")
-	}
-
-	// Verify it returns the store's logger when no context logger
-	if logger != store.logger {
-		t.Error("getLogger() should return store logger when context has no logger")
-	}
-}
-
 func TestQdrantStore_Upsert_EmptyPoints(t *testing.T) {
 	// This test verifies that Upsert handles empty points gracefully
 	// We test the early return logic without needing a real client
-	store := &QdrantStore{
-		logger: slog.Default(),
-	}
+	store := &QdrantStore{}
 
 	ctx := context.Background()
 	// This should return early before trying to use the client
@@ -186,9 +168,7 @@ func TestQdrantStore_Upsert_EmptyPoints(t *testing.T) {
 func TestQdrantStore_Delete_EmptyIDs(t *testing.T) {
 	// This test verifies that Delete handles empty IDs gracefully
 	// We test the early return logic without needing a real client
-	store := &QdrantStore{
-		logger: slog.Default(),
-	}
+	store := &QdrantStore{}
 
 	ctx := context.Background()
 	// This should return early before trying to use the client
@@ -200,9 +180,7 @@ func TestQdrantStore_Delete_EmptyIDs(t *testing.T) {
 
 func TestQdrantStore_Search_InvalidK(t *testing.T) {
 	// This test verifies validation logic without needing a real client
-	store := &QdrantStore{
-		logger: slog.Default(),
-	}
+	store := &QdrantStore{}
 
 	ctx := context.Background()
 	// These should fail validation before trying to use the client

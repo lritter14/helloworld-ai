@@ -2,13 +2,13 @@ package indexer
 
 import (
 	"context"
-	"log/slog"
 	"testing"
 
 	"helloworld-ai/internal/llm"
 	storage_mocks "helloworld-ai/internal/storage/mocks"
-	vectorstore_mocks "helloworld-ai/internal/vectorstore/mocks"
 	"helloworld-ai/internal/vault"
+	vectorstore_mocks "helloworld-ai/internal/vectorstore/mocks"
+
 	"go.uber.org/mock/gomock"
 )
 
@@ -104,20 +104,3 @@ func TestPipeline_IndexAll_Structure(t *testing.T) {
 	// This will fail without proper vault setup, but we're just testing structure
 	_ = pipeline.IndexAll(ctx)
 }
-
-func TestPipeline_getLogger(t *testing.T) {
-	// Test that getLogger doesn't panic
-	pipeline := &Pipeline{logger: slog.Default()}
-
-	ctx := context.Background()
-	logger := pipeline.getLogger(ctx)
-	if logger == nil {
-		t.Error("getLogger() should return logger when pipeline has logger set")
-	}
-
-	// Verify it returns the pipeline's logger when no context logger
-	if logger != pipeline.logger {
-		t.Error("getLogger() should return pipeline logger when context has no logger")
-	}
-}
-

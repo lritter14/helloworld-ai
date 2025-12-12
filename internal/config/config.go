@@ -2,9 +2,11 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
@@ -23,6 +25,8 @@ type Config struct {
 	QdrantCollection   string
 	QdrantVectorSize   int
 	APIPort            string
+	LogLevel           slog.Level
+	LogFormat          string
 }
 
 // Load reads configuration from environment variables and returns a Config struct.
@@ -55,6 +59,28 @@ func Load() (*Config, error) {
 	llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8081")
 	llmModelName := getEnv("LLM_MODEL", "Llama-3.1-8B-Instruct")
 
+	// Parse log level (case-insensitive)
+	logLevelStr := strings.ToUpper(getEnv("LOG_LEVEL", "INFO"))
+	var logLevel slog.Level
+	switch logLevelStr {
+	case "DEBUG":
+		logLevel = slog.LevelDebug
+	case "INFO":
+		logLevel = slog.LevelInfo
+	case "WARN":
+		logLevel = slog.LevelWarn
+	case "ERROR":
+		logLevel = slog.LevelError
+	default:
+		return nil, fmt.Errorf("invalid LOG_LEVEL: %s (must be DEBUG, INFO, WARN, or ERROR)", logLevelStr)
+	}
+
+	// Parse log format
+	logFormat := strings.ToLower(getEnv("LOG_FORMAT", "text"))
+	if logFormat != "text" && logFormat != "json" {
+		return nil, fmt.Errorf("invalid LOG_FORMAT: %s (must be text or json)", logFormat)
+	}
+
 	cfg := &Config{
 		LLMBaseURL:         llmBaseURL,
 		LLMModelName:       llmModelName,
@@ -69,6 +95,8 @@ func Load() (*Config, error) {
 		QdrantURL:         getEnv("QDRANT_URL", "http://localhost:6333"),
 		QdrantCollection:  getEnv("QDRANT_COLLECTION", "notes"),
 		APIPort:           getEnv("API_PORT", "9000"),
+		LogLevel:          logLevel,
+		LogFormat:         logFormat,
 	}
 
 	// Parse QDRANT_VECTOR_SIZE

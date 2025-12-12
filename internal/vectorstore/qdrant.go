@@ -3,17 +3,17 @@ package vectorstore
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"strconv"
 
 	"github.com/qdrant/go-client/qdrant"
+
+	"helloworld-ai/internal/contextutil"
 )
 
 // QdrantStore implements VectorStore using Qdrant.
 type QdrantStore struct {
 	client *qdrant.Client
-	logger *slog.Logger
 }
 
 // NewQdrantStore creates a new Qdrant vector store client.
@@ -50,25 +50,12 @@ func NewQdrantStore(urlStr string) (*QdrantStore, error) {
 
 	return &QdrantStore{
 		client: client,
-		logger: slog.Default(),
 	}, nil
-}
-
-// getLogger extracts logger from context or returns default logger.
-func (s *QdrantStore) getLogger(ctx context.Context) *slog.Logger {
-	type loggerKeyType string
-	const loggerKey loggerKeyType = "logger"
-	if ctxLogger := ctx.Value(loggerKey); ctxLogger != nil {
-		if l, ok := ctxLogger.(*slog.Logger); ok {
-			return l
-		}
-	}
-	return s.logger
 }
 
 // Upsert inserts or updates points in the collection.
 func (s *QdrantStore) Upsert(ctx context.Context, collection string, points []Point) error {
-	logger := s.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	if len(points) == 0 {
 		return nil
@@ -103,7 +90,7 @@ func (s *QdrantStore) Upsert(ctx context.Context, collection string, points []Po
 
 // Search performs a similarity search with optional filters.
 func (s *QdrantStore) Search(ctx context.Context, collection string, query []float32, k int, filters map[string]any) ([]SearchResult, error) {
-	logger := s.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	if k <= 0 {
 		return nil, fmt.Errorf("k must be greater than 0")
@@ -211,7 +198,7 @@ func (s *QdrantStore) Search(ctx context.Context, collection string, query []flo
 
 // Delete removes points by their IDs.
 func (s *QdrantStore) Delete(ctx context.Context, collection string, ids []string) error {
-	logger := s.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	if len(ids) == 0 {
 		return nil
@@ -248,7 +235,7 @@ func (s *QdrantStore) CollectionExists(ctx context.Context, collection string) (
 // If the collection exists, validates that the vector size matches.
 // If it doesn't exist, creates it with the specified vector size.
 func (s *QdrantStore) EnsureCollection(ctx context.Context, collection string, vectorSize int) error {
-	logger := s.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	exists, err := s.CollectionExists(ctx, collection)
 	if err != nil {

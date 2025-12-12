@@ -3,36 +3,22 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 
+	"helloworld-ai/internal/contextutil"
 	"helloworld-ai/internal/indexer"
 )
 
 // IndexHandler handles HTTP requests for triggering re-indexing.
 type IndexHandler struct {
 	indexerPipeline *indexer.Pipeline
-	logger          *slog.Logger
 }
 
 // NewIndexHandler creates a new IndexHandler.
 func NewIndexHandler(indexerPipeline *indexer.Pipeline) *IndexHandler {
 	return &IndexHandler{
 		indexerPipeline: indexerPipeline,
-		logger:          slog.Default(),
 	}
-}
-
-// getLogger extracts logger from context or returns default logger.
-func (h *IndexHandler) getLogger(ctx context.Context) *slog.Logger {
-	type loggerKeyType string
-	const loggerKey loggerKeyType = "logger"
-	if ctxLogger := ctx.Value(loggerKey); ctxLogger != nil {
-		if l, ok := ctxLogger.(*slog.Logger); ok {
-			return l
-		}
-	}
-	return h.logger
 }
 
 // IndexResponse represents the response from the index endpoint.
@@ -83,7 +69,7 @@ type IndexResponse struct {
 //	    "$ref": "#/definitions/ErrorResponse"
 func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	logger := h.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	if r.Method != http.MethodPost {
 		logger.WarnContext(ctx, "method not allowed", "method", r.Method)
@@ -104,18 +90,19 @@ func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Use background context so indexing continues after HTTP request completes
 	go func() {
 		indexCtx := context.Background()
+		indexLogger := contextutil.LoggerFromContext(indexCtx)
 		if force {
 			// Clear all existing data first
 			if err := h.indexerPipeline.ClearAll(indexCtx); err != nil {
-				logger.ErrorContext(indexCtx, "failed to clear existing data", "error", err)
+				indexLogger.ErrorContext(indexCtx, "failed to clear existing data", "error", err)
 				return
 			}
-			logger.InfoContext(indexCtx, "cleared all existing indexed data")
+			indexLogger.InfoContext(indexCtx, "cleared all existing indexed data")
 		}
 		if err := h.indexerPipeline.IndexAll(indexCtx); err != nil {
-			logger.ErrorContext(indexCtx, "re-indexing completed with errors", "error", err)
+			indexLogger.ErrorContext(indexCtx, "re-indexing completed with errors", "error", err)
 		} else {
-			logger.InfoContext(indexCtx, "re-indexing completed successfully")
+			indexLogger.InfoContext(indexCtx, "re-indexing completed successfully")
 		}
 	}()
 

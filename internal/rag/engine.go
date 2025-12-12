@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 
+	"helloworld-ai/internal/contextutil"
 	"helloworld-ai/internal/llm"
 	"helloworld-ai/internal/storage"
 	"helloworld-ai/internal/vectorstore"
@@ -54,7 +54,6 @@ type ragEngine struct {
 	vaultRepo   storage.VaultStore
 	noteRepo    storage.NoteStore
 	llmClient   *llm.Client
-	logger      *slog.Logger
 }
 
 // NewEngine creates a new RAG engine.
@@ -75,20 +74,7 @@ func NewEngine(
 		vaultRepo:   vaultRepo,
 		noteRepo:    noteRepo,
 		llmClient:   llmClient,
-		logger:      slog.Default(),
 	}
-}
-
-// getLogger extracts logger from context or returns default logger.
-func (e *ragEngine) getLogger(ctx context.Context) *slog.Logger {
-	type loggerKeyType string
-	const loggerKey loggerKeyType = "logger"
-	if ctxLogger := ctx.Value(loggerKey); ctxLogger != nil {
-		if l, ok := ctxLogger.(*slog.Logger); ok {
-			return l
-		}
-	}
-	return e.logger
 }
 
 // truncateString truncates a string to a maximum length, appending "..." if truncated.
@@ -105,7 +91,7 @@ func truncateString(s string, maxLen int) string {
 // userFolders format can be "<vaultID>/folder" or just "folder" (prefix matching).
 // Returns folders in format "<vaultName>/folder" (e.g., "personal/workouts").
 func (e *ragEngine) selectRelevantFolders(ctx context.Context, question string, availableFolders []string, userFolders []string, vaultIDs []int, vaultMap map[int]string) []string {
-	logger := e.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	// Start with user-provided folders (they are already prioritized)
 	orderedFolders := make([]string, 0, len(userFolders))
@@ -357,7 +343,7 @@ Your response (JSON array only):`, question, folderList)
 
 // Ask answers a question using RAG.
 func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error) {
-	logger := e.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	logger.InfoContext(ctx, "RAG query started",
 		"question", req.Question,

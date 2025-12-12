@@ -380,10 +380,94 @@ func WrapError(err error, msg string) error {
 - Use structured logging with `slog` and key-value pairs
 - Extract logger from context when available, fallback to default logger
 - Log levels:
-  - `Error` - Errors that require attention
-  - `Warn` - Warnings (e.g., invalid input)
-  - `Info` - Important events
-- Include relevant context fields (e.g., `message_length`, `error`)
+  - **Debug** - Detailed troubleshooting information, verbose output, internal state details, full request/response payloads (when not sensitive), skip decisions, detailed flow through complex algorithms, intermediate calculation results
+  - **Info** - Important operational events, routine operations, request summaries, successful operations, startup milestones, important state changes
+  - **Warn** - Important but expected issues, invalid input, recoverable errors, deprecation warnings, missing optional data
+  - **Error** - Exceptional circumstances, errors requiring attention, failures that impact functionality, unrecoverable errors, external service failures, critical issues. Always include error details with `"error", err`
+- Include relevant context fields (e.g., `message_length`, `error`, `vault_id`, `file_path`)
+
+### 6.2 Log Level Decision Tree
+
+**Use Debug when:**
+- Logging detailed internal state for troubleshooting
+- Logging full request/response payloads (non-sensitive)
+- Logging skip decisions (e.g., "skipping unchanged file")
+- Logging detailed flow through complex algorithms
+- Logging intermediate calculation results
+
+**Use Info when:**
+- Logging successful operations (indexing completed, request processed)
+- Logging important state changes (server started, database ready)
+- Logging request summaries (HTTP requests, RAG queries)
+- Logging operational milestones
+
+**Use Warn when:**
+- Logging validation failures (invalid input, unknown vault)
+- Logging recoverable errors (failed to delete old chunks, continue anyway)
+- Logging missing optional data (vault name not found, using fallback)
+- Logging deprecation warnings
+
+**Use Error when:**
+- Logging unrecoverable errors (database connection failed)
+- Logging external service failures (LLM request failed)
+- Logging critical issues requiring attention
+- Always include error details with `"error", err`
+
+### 6.3 Context-Based Logging Pattern
+
+Extract logger from context when available. Use the shared helper:
+
+```go
+import "helloworld-ai/internal/contextutil"
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
+    logger := contextutil.LoggerFromContext(ctx)
+    logger.InfoContext(ctx, "request processed", "request_id", req.ID)
+    // ...
+}
+```
+
+For non-HTTP packages, you can use the same helper or implement your own pattern:
+
+```go
+func (s *service) ProcessRequest(ctx context.Context, req Request) error {
+    logger := s.getLogger(ctx) // Uses http.LoggerFromContext or custom implementation
+    logger.InfoContext(ctx, "request processed", "request_id", req.ID)
+    // ...
+}
+```
+
+**Shared Helper Function:**
+
+The `contextutil.LoggerFromContext` function is available in `internal/contextutil` package and can be used by any package to extract a logger from context. It returns the logger from context if available, otherwise falls back to `slog.Default()`.
+
+**Custom Implementation Pattern:**
+
+If you need a custom fallback logger (e.g., for testing), you can implement your own:
+
+```go
+func (s *service) getLogger(ctx context.Context) *slog.Logger {
+    if logger := ctx.Value(loggerKey); logger != nil {
+        if l, ok := logger.(*slog.Logger); ok {
+            return l
+        }
+    }
+    return s.logger // Custom fallback logger
+}
+```
+
+### 6.4 Configuration
+
+Logging is configured via environment variables:
+
+- `LOG_LEVEL`: Log level (DEBUG, INFO, WARN, ERROR) - default: INFO
+- `LOG_FORMAT`: Output format (text, json) - default: text
+
+**Production Recommendations:**
+- Use INFO level in production
+- Use JSON format in production for better log aggregation
+- Use DEBUG level only for troubleshooting
 
 ## 7. Testing Strategy
 

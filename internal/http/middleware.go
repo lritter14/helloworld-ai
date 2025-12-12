@@ -5,11 +5,9 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"helloworld-ai/internal/contextutil"
 )
-
-type contextKey string
-
-const loggerKey contextKey = "logger"
 
 // LoggerMiddleware adds a structured logger to the request context.
 func LoggerMiddleware(next http.Handler) http.Handler {
@@ -19,7 +17,7 @@ func LoggerMiddleware(next http.Handler) http.Handler {
 			"path", r.URL.Path,
 			"remote_addr", r.RemoteAddr,
 		)
-		ctx := context.WithValue(r.Context(), loggerKey, logger)
+		ctx := context.WithValue(r.Context(), contextutil.LoggerKey(), logger)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

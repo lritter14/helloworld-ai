@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"helloworld-ai/internal/contextutil"
 )
 
 func TestLoggerMiddleware(t *testing.T) {
@@ -29,7 +31,7 @@ func TestLoggerMiddleware(t *testing.T) {
 	if capturedCtx == nil {
 		t.Fatal("LoggerMiddleware() should capture context")
 	}
-	logger := capturedCtx.Value(loggerKey)
+	logger := capturedCtx.Value(contextutil.LoggerKey())
 	if logger == nil {
 		t.Error("LoggerMiddleware() should add logger to context")
 	}

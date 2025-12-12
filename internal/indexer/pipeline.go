@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"helloworld-ai/internal/contextutil"
 	"helloworld-ai/internal/llm"
 	"helloworld-ai/internal/storage"
 	"helloworld-ai/internal/vault"
@@ -28,7 +29,6 @@ type Pipeline struct {
 	vectorStore  vectorstore.VectorStore
 	collection   string
 	chunker      *GoldmarkChunker
-	logger       *slog.Logger
 }
 
 // NewPipeline creates a new indexing pipeline.
@@ -48,20 +48,7 @@ func NewPipeline(
 		vectorStore:  vectorStore,
 		collection:   collection,
 		chunker:      NewGoldmarkChunker(),
-		logger:       slog.Default(),
 	}
-}
-
-// getLogger extracts logger from context or returns default logger.
-func (p *Pipeline) getLogger(ctx context.Context) *slog.Logger {
-	type loggerKeyType string
-	const loggerKey loggerKeyType = "logger"
-	if ctxLogger := ctx.Value(loggerKey); ctxLogger != nil {
-		if l, ok := ctxLogger.(*slog.Logger); ok {
-			return l
-		}
-	}
-	return p.logger
 }
 
 // ErrChunkSkipped is returned when a chunk is too large to embed and is skipped.
@@ -183,7 +170,7 @@ func (p *Pipeline) embedTextsWithRetry(ctx context.Context, texts []string, relP
 // and stores chunks in both SQLite and Qdrant.
 // folder is the folder path (already calculated from relPath during scanning).
 func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath, folder string) error {
-	logger := p.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	// Get absolute path
 	absPath := p.vaultManager.AbsPath(vaultID, relPath)
@@ -300,8 +287,8 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath, folder s
 	// We use conservative limits to avoid hitting the context size limit.
 	// Limit by both count and total character size to handle large chunks.
 	// Using rune count (not byte count) for better approximation of token count.
-	const maxBatchCount = 5     // Max number of chunks per batch
-	const maxBatchChars = 1600   // Max total runes per batch (target ~350-400 tokens, ~4 chars/token)
+	const maxBatchCount = 5    // Max number of chunks per batch
+	const maxBatchChars = 1600 // Max total runes per batch (target ~350-400 tokens, ~4 chars/token)
 	embeddings := make([][]float32, 0, len(chunks))
 
 	i := 0
@@ -471,7 +458,7 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath, folder s
 // ClearAll deletes all indexed data (chunks, notes, and Qdrant points).
 // This is used for force reindexing.
 func (p *Pipeline) ClearAll(ctx context.Context) error {
-	logger := p.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 	logger.InfoContext(ctx, "clearing all indexed data")
 
 	// Get all chunk IDs from database before deleting
@@ -508,7 +495,7 @@ func (p *Pipeline) ClearAll(ctx context.Context) error {
 // IndexAll scans all vaults and indexes all markdown files.
 // Errors for individual files are logged but don't stop the indexing process.
 func (p *Pipeline) IndexAll(ctx context.Context) error {
-	logger := p.getLogger(ctx)
+	logger := contextutil.LoggerFromContext(ctx)
 
 	// Scan all vaults
 	scannedFiles, err := p.vaultManager.ScanAll(ctx)

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,7 @@ func TestLoad(t *testing.T) {
 		"LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL",
 		"EMBEDDING_BASE_URL", "EMBEDDING_MODEL_NAME",
 		"DB_PATH", "QDRANT_URL", "QDRANT_COLLECTION", "API_PORT",
+		"LOG_LEVEL", "LOG_FORMAT",
 	}
 	for _, key := range envVars {
 		originalEnv[key] = os.Getenv(key)
@@ -129,7 +131,9 @@ func TestLoad(t *testing.T) {
 					cfg.DBPath == "./data/helloworld-ai.db" &&
 					cfg.QdrantURL == "http://localhost:6333" &&
 					cfg.QdrantCollection == "notes" &&
-					cfg.APIPort == "9000"
+					cfg.APIPort == "9000" &&
+					cfg.LogLevel == slog.LevelInfo &&
+					cfg.LogFormat == "text"
 			},
 		},
 		{
@@ -169,6 +173,65 @@ func TestLoad(t *testing.T) {
 					cfg.EmbeddingModelName == "granite-embedding-278m-multilingual"
 			},
 		},
+		{
+			name: "custom LOG_LEVEL values",
+			setupEnv: func(t *testing.T) {
+				setEnv("VAULT_PERSONAL_PATH", t.TempDir())
+				setEnv("VAULT_WORK_PATH", t.TempDir())
+				setEnv("QDRANT_VECTOR_SIZE", "768")
+				setEnv("LOG_LEVEL", "DEBUG")
+			},
+			wantErr: false,
+			checkConfig: func(cfg *Config) bool {
+				return cfg.LogLevel == slog.LevelDebug
+			},
+		},
+		{
+			name: "invalid LOG_LEVEL",
+			setupEnv: func(t *testing.T) {
+				setEnv("VAULT_PERSONAL_PATH", t.TempDir())
+				setEnv("VAULT_WORK_PATH", t.TempDir())
+				setEnv("QDRANT_VECTOR_SIZE", "768")
+				setEnv("LOG_LEVEL", "INVALID")
+			},
+			wantErr: true,
+		},
+		{
+			name: "case-insensitive LOG_LEVEL",
+			setupEnv: func(t *testing.T) {
+				setEnv("VAULT_PERSONAL_PATH", t.TempDir())
+				setEnv("VAULT_WORK_PATH", t.TempDir())
+				setEnv("QDRANT_VECTOR_SIZE", "768")
+				setEnv("LOG_LEVEL", "warn")
+			},
+			wantErr: false,
+			checkConfig: func(cfg *Config) bool {
+				return cfg.LogLevel == slog.LevelWarn
+			},
+		},
+		{
+			name: "custom LOG_FORMAT",
+			setupEnv: func(t *testing.T) {
+				setEnv("VAULT_PERSONAL_PATH", t.TempDir())
+				setEnv("VAULT_WORK_PATH", t.TempDir())
+				setEnv("QDRANT_VECTOR_SIZE", "768")
+				setEnv("LOG_FORMAT", "json")
+			},
+			wantErr: false,
+			checkConfig: func(cfg *Config) bool {
+				return cfg.LogFormat == "json"
+			},
+		},
+		{
+			name: "invalid LOG_FORMAT",
+			setupEnv: func(t *testing.T) {
+				setEnv("VAULT_PERSONAL_PATH", t.TempDir())
+				setEnv("VAULT_WORK_PATH", t.TempDir())
+				setEnv("QDRANT_VECTOR_SIZE", "768")
+				setEnv("LOG_FORMAT", "invalid")
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -185,6 +248,9 @@ func TestLoad(t *testing.T) {
 			for _, key := range envVars {
 				unsetEnv(key)
 			}
+			// Also clean up LOG_LEVEL and LOG_FORMAT
+			unsetEnv("LOG_LEVEL")
+			unsetEnv("LOG_FORMAT")
 			// Restore original values after test
 			defer func() {
 				for key, value := range originalEnv {
