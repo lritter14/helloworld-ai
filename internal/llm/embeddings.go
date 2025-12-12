@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // EmbeddingsClient is a client for interacting with llama.cpp embeddings API.
@@ -82,6 +83,21 @@ func (e *EmbeddingError) Unwrap() error {
 // IsExceedContextSizeError checks if the error is an exceed_context_size_error.
 func (e *EmbeddingError) IsExceedContextSizeError() bool {
 	return e.LlamaError != nil && e.LlamaError.Error.Type == "exceed_context_size_error"
+}
+
+// IsModelNotFoundError checks if the error is a model not found error.
+// This is common in router mode when models need to be loaded first.
+func (e *EmbeddingError) IsModelNotFoundError() bool {
+	if e.LlamaError == nil {
+		return false
+	}
+	// Check for "model not found" error (common in router mode)
+	msg := e.LlamaError.Error.Message
+	errorType := e.LlamaError.Error.Type
+	// Check if it's an invalid_request_error with "model not found" message
+	// or if message contains "model not found" or "failed to load"
+	return (errorType == "invalid_request_error" || errorType == "model_not_found") &&
+		(strings.Contains(msg, "model not found") || strings.Contains(msg, "failed to load"))
 }
 
 // EmbedTexts generates embeddings for the given texts.

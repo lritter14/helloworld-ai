@@ -85,7 +85,7 @@ generate-swagger:
 	@swagger generate spec -o cmd/api/swagger.json
 	@echo "Swagger specification generated: cmd/api/swagger.json"
 	@echo "Note: The swagger.json file is served by the API at /api/docs/swagger.json"
-	@echo "      Swagger UI is available via Tilt at http://localhost:8082"
+	@echo "      Swagger UI is available via Tilt at http://localhost:8083"
 
 
 build-api: generate-swagger

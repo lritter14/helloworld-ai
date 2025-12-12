@@ -56,8 +56,11 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Single server for both chat and embeddings (router mode)
 	llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8081")
-	llmModelName := getEnv("LLM_MODEL", "Llama-3.1-8B-Instruct")
+	// Model name must match the filename (without .gguf extension) for router mode
+	// Example: If file is "Qwen2.5-3B-Instruct-Q4_K_M.gguf", use "Qwen2.5-3B-Instruct-Q4_K_M"
+	llmModelName := getEnv("LLM_MODEL", "Qwen2.5-3B-Instruct-Q4_K_M")
 
 	// Parse log level (case-insensitive)
 	logLevelStr := strings.ToUpper(getEnv("LOG_LEVEL", "INFO"))
@@ -82,13 +85,17 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		LLMBaseURL:         llmBaseURL,
-		LLMModelName:       llmModelName,
-		LLMAPIKey:          getEnv("LLM_API_KEY", "dummy-key"),
-		EmbeddingBaseURL:   getEnv("EMBEDDING_BASE_URL", "http://localhost:8082"),                 // Default to embeddings server
-		EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", "granite-embedding-278m-multilingual"), // Default to granite embeddings model
-		// Note: granite-embedding-278m-multilingual has n_ctx=512 tokens (hard limit enforced by model).
-		// The --ctx-size flag in llama.cpp is ignored; the model enforces 512 tokens maximum.
+		LLMBaseURL:   llmBaseURL,
+		LLMModelName: llmModelName,
+		LLMAPIKey:    getEnv("LLM_API_KEY", "dummy-key"),
+		// Single server for both chat and embeddings (router mode)
+		// Embeddings use the same base URL as chat, model is selected at runtime
+		EmbeddingBaseURL: getEnv("EMBEDDING_BASE_URL", "http://localhost:8081"), // Default to same server as chat
+		// Model name must match the filename (without .gguf extension) for router mode
+		// Example: If file is "ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf", use "ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0"
+		EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", "ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0"),
+		// Note: EmbeddingGemma-300M supports a 2048-token context window.
+		// For granite-embedding-278m-multilingual, n_ctx=512 tokens (hard limit enforced by model).
 		DBPath:            getEnv("DB_PATH", "./data/helloworld-ai.db"),
 		VaultPersonalPath: getEnv("VAULT_PERSONAL_PATH", ""),
 		VaultWorkPath:     getEnv("VAULT_WORK_PATH", ""),

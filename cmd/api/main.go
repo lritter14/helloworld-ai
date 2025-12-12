@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"log/slog"
 	nethttp "net/http"
@@ -101,16 +102,60 @@ func main() {
 	}
 	slog.Info("Qdrant collection ready", "collection", cfg.QdrantCollection, "vector_size", cfg.QdrantVectorSize)
 
+	// Load models into llama.cpp server (router mode)
+	// This ensures models are available before we try to use them
+	modelLoader := llm.NewModelLoader(cfg.LLMBaseURL)
+
+	// Load chat model
+	chatModelArgs := []string{
+		"--ctx-size", "8192",
+		"--threads", "8",
+		"--batch-size", "384",
+		"--ubatch-size", "96",
+	}
+	if err := modelLoader.LoadModel(ctx, cfg.LLMModelName, chatModelArgs); err != nil {
+		slog.Warn("Failed to load chat model (will be loaded on first use)",
+			"model", cfg.LLMModelName,
+			"error", err)
+	} else {
+		slog.Info("Chat model loaded", "model", cfg.LLMModelName)
+	}
+
+	// Load embeddings model
+	embeddingModelArgs := []string{
+		"--embeddings",
+		"--pooling", "mean",
+		"--ctx-size", "2048",
+		"--ubatch-size", "2048",
+	}
+	if err := modelLoader.LoadModel(ctx, cfg.EmbeddingModelName, embeddingModelArgs); err != nil {
+		slog.Warn("Failed to load embedding model (will be loaded on first use)",
+			"model", cfg.EmbeddingModelName,
+			"error", err)
+	} else {
+		slog.Info("Embedding model loaded", "model", cfg.EmbeddingModelName)
+	}
+
 	// Validate embedding client vector size (fail-fast)
 	embedder := llm.NewEmbeddingsClient(cfg.EmbeddingBaseURL, cfg.LLMAPIKey, cfg.EmbeddingModelName, cfg.QdrantVectorSize)
 	testEmbeddings, err := embedder.EmbedTexts(ctx, []string{"test"})
 	if err != nil {
-		log.Fatalf("Failed to validate embedding client: %v", err)
+		// Check if error is due to model not being loaded (router mode)
+		var embedErr *llm.EmbeddingError
+		if errors.As(err, &embedErr) && embedErr.IsModelNotFoundError() {
+			slog.Warn("Embedding model not loaded yet",
+				"model", cfg.EmbeddingModelName,
+				"message", "Model will be loaded on first use. Use scripts/load-models.sh to pre-load models.")
+		} else {
+			log.Fatalf("Failed to validate embedding client: %v", err)
+		}
+	} else {
+		// Model is loaded, validate vector size
+		if len(testEmbeddings) == 0 || len(testEmbeddings[0]) != cfg.QdrantVectorSize {
+			log.Fatalf("Embedding vector size mismatch: expected %d, got %d", cfg.QdrantVectorSize, len(testEmbeddings[0]))
+		}
+		slog.Info("Embedding client validated", "vector_size", cfg.QdrantVectorSize)
 	}
-	if len(testEmbeddings) == 0 || len(testEmbeddings[0]) != cfg.QdrantVectorSize {
-		log.Fatalf("Embedding vector size mismatch: expected %d, got %d", cfg.QdrantVectorSize, len(testEmbeddings[0]))
-	}
-	slog.Info("Embedding client validated", "vector_size", cfg.QdrantVectorSize)
 
 	// Create indexing pipeline
 	indexerPipeline := indexer.NewPipeline(

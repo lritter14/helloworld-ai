@@ -7,16 +7,13 @@
 # ============================================================================
 
 # llama.cpp Server Configuration
-llama_server_path = "../llama.cpp/build/bin/llama-server"
+llama_server_path = "/opt/homebrew/bin/llama-server"
 
-# Chat Server Configuration
-llama_chat_model_path = "../llama.cpp/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
-llama_chat_port = 8081
+# Models Directory (router mode auto-discovers models from here)
+llama_models_dir = "../llama.cpp/models"
 
-# Embeddings Server Configuration
-llama_embeddings_model_path = "../llama.cpp/models/ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf"
-# llama_embeddings_model_path = "../llama.cpp/models/bartowski_granite-embedding-278m-multilingual-GGUF_granite-embedding-278m-multilingual-Q5_K_L.gguf"
-llama_embeddings_port = 8082
+# Single Server Configuration (router mode - handles both chat and embeddings)
+llama_server_port = 8081
 
 # API Server Configuration
 api_port = 9000
@@ -53,10 +50,10 @@ local_resource(
 )
 
 # ============================================================================
-# llama.cpp Chat Server (Infrastructure Dependency)
+# llama.cpp Server (Router Mode - Single Server for Chat and Embeddings)
 # ============================================================================
 local_resource(
-    name="llama-server-chat",
+    name="llama-server",
     serve_cmd=[
         "bash", "-c",
         """
@@ -66,25 +63,28 @@ local_resource(
             exit 1
         fi
         
-        if [ ! -f "%s" ]; then
-            echo "Warning: Chat model file not found at %s"
-            echo "Please ensure the model file exists"
+        if [ ! -d "%s" ]; then
+            echo "Warning: Models directory not found at %s"
+            echo "Please ensure the models directory exists"
             exit 1
         else
-            echo "Starting llama.cpp chat server on port %d with model %s"
-            %s -m %s \
+            echo "Starting llama.cpp server in router mode on port %d"
+            echo "Auto-discovering models from: %s"
+            echo "Models will be loaded on-demand when requested via /models/load endpoint"
+            echo "Use scripts/load-models.sh to load models with their specific parameters"
+            # Router mode: minimal configuration, model-specific params set via /models/load
+            LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS=true %s \
+              --models-dir %s \
               --port %d \
               --host localhost \
-              --ctx-size 8192 \
-              --threads 8 \
-              --batch-size 384 \
-              --ubatch-size 96
+              --models-max 4 \
+              --embeddings
         fi
         """ % (
             llama_server_path, llama_server_path,
-            llama_chat_model_path, llama_chat_model_path,
-            llama_chat_port, llama_chat_model_path,
-            llama_server_path, llama_chat_model_path, llama_chat_port
+            llama_models_dir, llama_models_dir,
+            llama_server_port, llama_models_dir,
+            llama_server_path, llama_models_dir, llama_server_port
         )
     ],
     resource_deps=[],
@@ -92,55 +92,8 @@ local_resource(
     auto_init=True,
     ignore=["**"],
     readiness_probe=probe(
-        exec=exec_action(["curl", "-f", "http://localhost:%d/props" % llama_chat_port]),
-        initial_delay_secs=10,
-        timeout_secs=2,
-        period_secs=3,
-    ),
-)
-# ============================================================================
-# llama.cpp Embeddings Server (Infrastructure Dependency)
-# ============================================================================
-local_resource(
-    name="llama-server-embeddings",
-    serve_cmd=[
-        "bash", "-c",
-        """
-        if [ ! -f "%s" ]; then
-            echo "Error: llama-server not found at %s"
-            echo "Please build llama.cpp first: cd ../llama.cpp && make"
-            exit 1
-        fi
-        
-        if [ ! -f "%s" ]; then
-            echo "Warning: Embeddings model file not found at %s"
-            echo "Please ensure the model file exists"
-            exit 1
-        else
-            echo "Starting llama.cpp embeddings server on port %d with model %s"
-            # EmbeddingGemma-300M supports a 2048-token context window, so --ctx-size 2048 is fine.
-            %s -m %s \
-              --port %d \
-              --host localhost \
-              --embedding \
-              --pooling mean \
-              --ubatch-size 2048 \
-              --ctx-size 2048
-        fi
-        """ % (
-            llama_server_path, llama_server_path,
-            llama_embeddings_model_path, llama_embeddings_model_path,
-            llama_embeddings_port, llama_embeddings_model_path,
-            llama_server_path, llama_embeddings_model_path, llama_embeddings_port
-        )
-    ],
-    resource_deps=[],
-    labels=["infra"],
-    auto_init=True,
-    ignore=["**"],
-    readiness_probe=probe(
-        exec=exec_action(["curl", "-f", "http://localhost:%d/props" % llama_embeddings_port]),
-        initial_delay_secs=10,
+        exec=exec_action(["curl", "-f", "http://localhost:%d/models" % llama_server_port]),
+        initial_delay_secs=5,
         timeout_secs=2,
         period_secs=3,
     ),
@@ -167,7 +120,7 @@ local_resource(
         "./go.sum",
         "./cmd/api/swagger.json",
     ],
-    resource_deps=["qdrant", "llama-server-chat", "llama-server-embeddings"],
+    resource_deps=["qdrant", "llama-server"],
     labels=["api"],
     ignore=[
         "**/bin/**",
@@ -180,6 +133,28 @@ local_resource(
         period_secs=3,
     ),
 )
+
+# ============================================================================
+# Model Loader (Optional - models are also loaded during API startup)
+# ============================================================================
+# Uncomment this resource if you prefer to load models via Tilt instead of API startup
+# local_resource(
+#     name="load-models",
+#     serve_cmd=[
+#         "bash", "-c",
+#         """
+#         echo "Waiting for llama server to be ready..."
+#         sleep 5
+#         echo "Loading models into llama.cpp server..."
+#         ./scripts/load-models.sh http://localhost:%d
+#         echo "Models loaded. This job will exit."
+#         """ % llama_server_port,
+#     ],
+#     resource_deps=["llama-server"],
+#     labels=["infra"],
+#     auto_init=False,  # Set to True to auto-load models on Tilt start
+#     ignore=["**"],
+# )
 
 # ============================================================================
 # Swagger UI (API Documentation)
