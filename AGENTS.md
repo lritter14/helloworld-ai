@@ -571,7 +571,7 @@ _ = stats.MaxIdleClosed // Explicitly use variable
 - **Chunker:** Use `github.com/yuin/goldmark` with `goldmark/ast` for markdown parsing
 - **Chunking Strategy:** Chunk by heading hierarchy, min 50 runes, max 1000 runes (measured in runes for token estimation)
 - **Embedding Model:** Uses `granite-embedding-278m-multilingual` with 512-token context limit (chunks exceeding limit are skipped)
-- **Separate Servers:** Chat and embeddings use separate llama.cpp servers (ports 8080 and 8081)
+- **Separate Servers:** Chat and embeddings use separate llama.cpp servers (ports 8081 and 8082)
 - **Default K Value:** Default `K = 5` chunks for RAG queries, max `K = 20`
 - **.env Loading:** Use `github.com/joho/godotenv` for automatic `.env` file loading
 - **Vault Scanning:** Skip `.obsidian` directory, scan only `.md` files

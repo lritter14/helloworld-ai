@@ -421,7 +421,7 @@ type Engine interface {
 
      * ✅ Implemented config structure per Section 0.22.
      * ✅ Reads env vars with defaults:
-       * `LLM_BASE_URL` (default: `"http://localhost:8080"`)
+       * `LLM_BASE_URL` (default: `"http://localhost:8081"`)
        * `LLM_MODEL` (default: `"local-model"`) - Note: uses `LLM_MODEL` env var for backward compatibility
        * `LLM_API_KEY` (default: `"dummy-key"`)
        * `EMBEDDING_BASE_URL` (default: same as `LLM_BASE_URL`)

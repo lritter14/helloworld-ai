@@ -52,23 +52,23 @@ func Load() (*Config, error) {
 		}
 	}
 
-	llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8080")
+	llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8081")
 	llmModelName := getEnv("LLM_MODEL", "Llama-3.1-8B-Instruct")
 
 	cfg := &Config{
 		LLMBaseURL:         llmBaseURL,
 		LLMModelName:       llmModelName,
 		LLMAPIKey:          getEnv("LLM_API_KEY", "dummy-key"),
-		EmbeddingBaseURL:   getEnv("EMBEDDING_BASE_URL", "http://localhost:8081"), // Default to embeddings server
+		EmbeddingBaseURL:   getEnv("EMBEDDING_BASE_URL", "http://localhost:8082"),                 // Default to embeddings server
 		EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", "granite-embedding-278m-multilingual"), // Default to granite embeddings model
 		// Note: granite-embedding-278m-multilingual has n_ctx=512 tokens (hard limit enforced by model).
 		// The --ctx-size flag in llama.cpp is ignored; the model enforces 512 tokens maximum.
-		DBPath:             getEnv("DB_PATH", "./data/helloworld-ai.db"),
-		VaultPersonalPath:  getEnv("VAULT_PERSONAL_PATH", ""),
-		VaultWorkPath:      getEnv("VAULT_WORK_PATH", ""),
-		QdrantURL:          getEnv("QDRANT_URL", "http://localhost:6333"),
-		QdrantCollection:   getEnv("QDRANT_COLLECTION", "notes"),
-		APIPort:            getEnv("API_PORT", "9000"),
+		DBPath:            getEnv("DB_PATH", "./data/helloworld-ai.db"),
+		VaultPersonalPath: getEnv("VAULT_PERSONAL_PATH", ""),
+		VaultWorkPath:     getEnv("VAULT_WORK_PATH", ""),
+		QdrantURL:         getEnv("QDRANT_URL", "http://localhost:6333"),
+		QdrantCollection:  getEnv("QDRANT_COLLECTION", "notes"),
+		APIPort:           getEnv("API_PORT", "9000"),
 	}
 
 	// Parse QDRANT_VECTOR_SIZE

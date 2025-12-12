@@ -10,12 +10,12 @@ import (
 )
 
 func TestNewClient(t *testing.T) {
-	client := NewClient("http://localhost:8080", "test-key", "test-model")
+	client := NewClient("http://localhost:8081", "test-key", "test-model")
 	if client == nil {
 		t.Fatal("NewClient() returned nil")
 	}
-	if client.BaseURL != "http://localhost:8080" {
-		t.Errorf("NewClient() BaseURL = %v, want http://localhost:8080", client.BaseURL)
+	if client.BaseURL != "http://localhost:8081" {
+		t.Errorf("NewClient() BaseURL = %v, want http://localhost:8081", client.BaseURL)
 	}
 	if client.APIKey != "test-key" {
 		t.Errorf("NewClient() APIKey = %v, want test-key", client.APIKey)

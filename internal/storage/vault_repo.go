@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
@@ -38,7 +39,23 @@ func (r *VaultRepo) GetOrCreateByName(ctx context.Context, name, rootPath string
 	).Scan(&vault.ID, &vault.Name, &vault.RootPath, &vault.CreatedAt)
 
 	if err == nil {
-		// Found existing vault
+		// Found existing vault - check if path has changed and update if needed
+		// Normalize both paths for comparison
+		normalizedExisting := filepath.Clean(vault.RootPath)
+		normalizedNew := filepath.Clean(rootPath)
+
+		if normalizedExisting != normalizedNew {
+			// Path has changed, update it
+			_, err := r.db.ExecContext(ctx,
+				"UPDATE vaults SET root_path = ? WHERE id = ?",
+				rootPath, vault.ID,
+			)
+			if err != nil {
+				return VaultRecord{}, fmt.Errorf("failed to update vault path: %w", err)
+			}
+			// Update the vault record with the new path
+			vault.RootPath = rootPath
+		}
 		return vault, nil
 	}
 

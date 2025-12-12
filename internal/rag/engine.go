@@ -228,10 +228,20 @@ Your response (JSON array only):`, question, folderList)
 		return orderedFolders
 	}
 
+	// Check for empty response
+	llmResponse = strings.TrimSpace(llmResponse)
+	if llmResponse == "" {
+		logger.WarnContext(ctx, "LLM returned empty response for folder selection, using all available folders",
+			"prompt_length", len(prompt),
+			"folder_count", len(foldersWithVaultNames),
+		)
+		// Fallback: add all remaining folders in original order
+		orderedFolders = append(orderedFolders, foldersForLLM...)
+		return orderedFolders
+	}
+
 	// Parse JSON response
 	var llmRankedFolders []string
-	// Try to extract JSON array from response (might have extra text)
-	llmResponse = strings.TrimSpace(llmResponse)
 
 	// First, try to find JSON array pattern in the response
 	// Look for pattern: [ ... ] where ... contains quoted strings

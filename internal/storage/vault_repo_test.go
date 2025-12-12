@@ -47,11 +47,11 @@ func TestVaultRepo_GetOrCreateByName(t *testing.T) {
 	repo := NewVaultRepo(db)
 
 	tests := []struct {
-		name     string
+		name      string
 		vaultName string
-		rootPath string
-		wantErr  bool
-		check    func(VaultRecord) bool
+		rootPath  string
+		wantErr   bool
+		check     func(VaultRecord) bool
 	}{
 		{
 			name:      "create new vault",
@@ -133,6 +133,11 @@ func TestVaultRepo_GetOrCreateByName_ReturnsSameVault(t *testing.T) {
 
 	if vault1.Name != vault2.Name {
 		t.Errorf("GetOrCreateByName() returned different names: %s vs %s", vault1.Name, vault2.Name)
+	}
+
+	// Path should be updated to the new path
+	if vault2.RootPath != "/tmp/different" {
+		t.Errorf("GetOrCreateByName() path not updated: got %q, want %q", vault2.RootPath, "/tmp/different")
 	}
 }
 
@@ -298,4 +303,3 @@ func TestVaultRepo_GetOrCreateByName_UniqueNames(t *testing.T) {
 		t.Errorf("GetOrCreateByName() should return different vault for different name")
 	}
 }
-

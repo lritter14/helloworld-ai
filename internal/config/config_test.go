@@ -121,10 +121,10 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr: false,
 			checkConfig: func(cfg *Config) bool {
-				return cfg.LLMBaseURL == "http://localhost:8080" &&
+				return cfg.LLMBaseURL == "http://localhost:8081" &&
 					cfg.LLMModelName == "Llama-3.1-8B-Instruct" &&
 					cfg.LLMAPIKey == "dummy-key" &&
-					cfg.EmbeddingBaseURL == "http://localhost:8081" &&
+					cfg.EmbeddingBaseURL == "http://localhost:8082" &&
 					cfg.EmbeddingModelName == "granite-embedding-278m-multilingual" &&
 					cfg.DBPath == "./data/helloworld-ai.db" &&
 					cfg.QdrantURL == "http://localhost:6333" &&
@@ -165,7 +165,7 @@ func TestLoad(t *testing.T) {
 				// Embeddings should have their own defaults, not inherit from LLM
 				return cfg.LLMBaseURL == "http://custom:9090" &&
 					cfg.LLMModelName == "custom-model" &&
-					cfg.EmbeddingBaseURL == "http://localhost:8081" &&
+					cfg.EmbeddingBaseURL == "http://localhost:8082" &&
 					cfg.EmbeddingModelName == "granite-embedding-278m-multilingual"
 			},
 		},

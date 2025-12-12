@@ -9,12 +9,12 @@ import (
 )
 
 func TestNewEmbeddingsClient(t *testing.T) {
-	client := NewEmbeddingsClient("http://localhost:8080", "test-key", "test-model", 768)
+	client := NewEmbeddingsClient("http://localhost:8082", "test-key", "test-model", 768)
 	if client == nil {
 		t.Fatal("NewEmbeddingsClient() returned nil")
 	}
-	if client.BaseURL != "http://localhost:8080" {
-		t.Errorf("NewEmbeddingsClient() BaseURL = %v, want http://localhost:8080", client.BaseURL)
+	if client.BaseURL != "http://localhost:8082" {
+		t.Errorf("NewEmbeddingsClient() BaseURL = %v, want http://localhost:8082", client.BaseURL)
 	}
 	if client.ExpectedSize != 768 {
 		t.Errorf("NewEmbeddingsClient() ExpectedSize = %v, want 768", client.ExpectedSize)

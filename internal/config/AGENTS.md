@@ -29,14 +29,14 @@ func Load() (*Config, error) {
         }
     }
     
-    llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8080")
+    llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8081")
     llmModelName := getEnv("LLM_MODEL", "Llama-3.1-8B-Instruct")
     
     cfg := &Config{
         LLMBaseURL:        llmBaseURL,
         LLMModelName:      llmModelName,
         LLMAPIKey:         getEnv("LLM_API_KEY", "dummy-key"),
-        EmbeddingBaseURL:  getEnv("EMBEDDING_BASE_URL", "http://localhost:8081"),  // Defaults to embeddings server
+        EmbeddingBaseURL:  getEnv("EMBEDDING_BASE_URL", "http://localhost:8082"),  // Defaults to embeddings server
         EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", "granite-embedding-278m-multilingual"), // Defaults to granite embeddings model
         DBPath:            getEnv("DB_PATH", "./data/helloworld-ai.db"),
         VaultPersonalPath: getEnv("VAULT_PERSONAL_PATH", ""),

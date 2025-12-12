@@ -3,7 +3,7 @@
 # llama.cpp server configuration
 LLAMA_SERVER ?= ../llama.cpp/build/bin/llama-server
 LLAMA_MODEL ?= ../llama.cpp/models/llama-3-8b-instruct-q4_k_m.gguf
-LLAMA_PORT ?= 8080
+LLAMA_PORT ?= 8081
 
 # API port
 API_PORT ?= 9000

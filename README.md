@@ -25,6 +25,55 @@ The application consists of a single binary:
 - Qdrant running (Docker)
 - (Optional) Tilt for unified development workflow
 
+## Model Downloads
+
+Before starting the llama.cpp servers, you need to download the required model files. The project uses two models:
+
+- **Chat Model:** `bartowski_Qwen2.5-14B-Instruct-GGUF_Qwen2.5-14B-Instruct-Q4_K_M.gguf` (for chat completions)
+- **Embeddings Model:** `ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf` (for embeddings generation)
+
+### Download Chat Model
+
+```bash
+# Create models directory if it doesn't exist
+mkdir -p ../llama.cpp/models
+
+# Download the Qwen2.5-14B-Instruct model (Q4_K_M quantization, ~8.99 GB)
+cd ../llama.cpp/models
+wget https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf \
+  -O bartowski_Qwen2.5-14B-Instruct-GGUF_Qwen2.5-14B-Instruct-Q4_K_M.gguf
+```
+
+Or using curl:
+
+```bash
+mkdir -p ../llama.cpp/models
+curl -L https://huggingface.co/bartowski/Qwen2.5-14B-Instruct-GGUF/resolve/main/Qwen2.5-14B-Instruct-Q4_K_M.gguf \
+  -o ../llama.cpp/models/bartowski_Qwen2.5-14B-Instruct-GGUF_Qwen2.5-14B-Instruct-Q4_K_M.gguf
+```
+
+### Download Embeddings Model
+
+```bash
+# Create models directory if it doesn't exist
+mkdir -p ../llama.cpp/models
+
+# Download the EmbeddingGemma-300M model (Q8_0 quantization)
+cd ../llama.cpp/models
+wget https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf \
+  -O ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf
+```
+
+Or using curl:
+
+```bash
+mkdir -p ../llama.cpp/models
+curl -L https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf \
+  -o ../llama.cpp/models/ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf
+```
+
+**Note:** Ensure you have sufficient disk space for both models. The chat model is approximately 8.99 GB, and the embeddings model is smaller. The models will be downloaded to `../llama.cpp/models/` relative to the project root.
+
 ## Configuration
 
 ### Environment File (.env)
@@ -36,12 +85,12 @@ The project automatically loads configuration from a `.env` file in the project 
 API_PORT=9000
 
 # LLM Configuration (Chat Completions)
-LLM_BASE_URL=http://localhost:8080
+LLM_BASE_URL=http://localhost:8081
 LLM_API_KEY=dummy-key
 LLM_MODEL=Llama-3.1-8B-Instruct
 
 # Embeddings Configuration
-EMBEDDING_BASE_URL=http://localhost:8081
+EMBEDDING_BASE_URL=http://localhost:8082
 EMBEDDING_MODEL_NAME=granite-embedding-278m-multilingual
 
 # Qdrant Configuration
@@ -68,8 +117,8 @@ tilt up
 
 This will:
 
-- Start llama.cpp chat server (port 8080) for chat completions
-- Start llama.cpp embeddings server (port 8081) for embeddings generation
+- Start llama.cpp chat server (port 8081) for chat completions
+- Start llama.cpp embeddings server (port 8082) for embeddings generation
 - Start Qdrant (port 6333)
 - Start API server (port 9000) - serves both API and web UI
 - Start Swagger UI (port 8082) - interactive API documentation
@@ -166,7 +215,7 @@ When running the API server directly (not via Tilt), you can set these environme
 
 **Optional (with defaults):**
 
-- `LLM_BASE_URL` - Base URL for llama.cpp chat server (default: `http://localhost:8080`)
+- `LLM_BASE_URL` - Base URL for llama.cpp chat server (default: `http://localhost:8081`)
 - `LLM_API_KEY` - API key for llama.cpp (default: `dummy-key`)
 - `LLM_MODEL` - Model name for chat completions (default: `Llama-3.1-8B-Instruct`)
 - `EMBEDDING_BASE_URL` - Base URL for embeddings API (default: `http://localhost:8081`)
@@ -303,10 +352,10 @@ scp bin/helloworld-ai-api user@server:~/helloworld-ai/
 VAULT_PERSONAL_PATH=/path/to/personal \
 VAULT_WORK_PATH=/path/to/work \
 QDRANT_VECTOR_SIZE=1024 \
-LLM_BASE_URL=http://localhost:8080 \
+LLM_BASE_URL=http://localhost:8081 \
 LLM_API_KEY=dummy-key \
 LLM_MODEL=Llama-3.1-8B-Instruct \
-EMBEDDING_BASE_URL=http://localhost:8081 \
+EMBEDDING_BASE_URL=http://localhost:8082 \
 EMBEDDING_MODEL_NAME=granite-embedding-278m-multilingual \
 API_PORT=9000 \
 ./helloworld-ai-api

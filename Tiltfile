@@ -10,19 +10,19 @@
 llama_server_path = "../llama.cpp/build/bin/llama-server"
 
 # Chat Server Configuration
-llama_chat_model_path = "../llama.cpp/models/bartowski_Qwen2.5-14B-Instruct-GGUF_Qwen2.5-14B-Instruct-Q4_K_M.gguf"
-llama_chat_port = 8080
+llama_chat_model_path = "../llama.cpp/models/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
+llama_chat_port = 8081
 
 # Embeddings Server Configuration
 llama_embeddings_model_path = "../llama.cpp/models/ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf"
 # llama_embeddings_model_path = "../llama.cpp/models/bartowski_granite-embedding-278m-multilingual-GGUF_granite-embedding-278m-multilingual-Q5_K_L.gguf"
-llama_embeddings_port = 8081
+llama_embeddings_port = 8082
 
 # API Server Configuration
 api_port = 9000
 
 # Swagger UI Configuration
-swagger_port = 8082
+swagger_port = 8083
 
 # ============================================================================
 # Qdrant Vector Database (Infrastructure Dependency)
@@ -74,7 +74,7 @@ local_resource(
             echo "Starting llama.cpp chat server on port %d with model %s"
             %s -m %s \
               --port %d \
-              --host 127.0.0.1 \
+              --host localhost \
               --ctx-size 8192 \
               --threads 8 \
               --batch-size 384 \
@@ -121,7 +121,7 @@ local_resource(
             # EmbeddingGemma-300M supports a 2048-token context window, so --ctx-size 2048 is fine.
             %s -m %s \
               --port %d \
-              --host 127.0.0.1 \
+              --host localhost \
               --embedding \
               --pooling mean \
               --ubatch-size 2048 \
