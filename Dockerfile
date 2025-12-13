@@ -3,8 +3,11 @@ FROM golang:1.25.3-alpine AS builder
 
 WORKDIR /build
 
-# Install build dependencies
-RUN apk add --no-cache git make
+# Install build dependencies (including CGO requirements for SQLite)
+RUN apk add --no-cache git make gcc musl-dev sqlite-dev
+
+# Enable CGO for SQLite support
+ENV CGO_ENABLED=1
 
 # Copy go mod files
 COPY go.mod go.sum ./
@@ -21,8 +24,8 @@ FROM alpine:latest
 
 WORKDIR /app
 
-# Install ca-certificates for HTTPS requests
-RUN apk --no-cache add ca-certificates
+# Install ca-certificates for HTTPS requests and SQLite runtime libraries
+RUN apk --no-cache add ca-certificates sqlite-libs
 
 # Copy binary from builder
 COPY --from=builder /build/bin/helloworld-ai-api /app/helloworld-ai-api
