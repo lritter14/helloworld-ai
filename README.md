@@ -332,7 +332,22 @@ The project follows Go best practices:
 
 ## Deployment
 
-### Home Server Deployment
+### Automated CI/CD Deployment (Recommended)
+
+The project includes automated deployment via GitHub Actions and Docker. See [DEPLOYMENT.md](DEPLOYMENT.md) for complete setup instructions.
+
+**Quick Overview:**
+- GitHub Actions builds and tests on every push
+- Docker image is pushed to GitHub Container Registry (GHCR)
+- Deployment triggered via TailNet SSH to your home PC
+- Graceful rolling updates with health checks
+
+**Prerequisites:**
+- Docker and Docker Compose on home PC
+- TailNet/Tailscale configured
+- GitHub repository secrets configured
+
+### Manual Home Server Deployment
 
 1. Build binary for your server architecture:
 
@@ -362,6 +377,10 @@ API_PORT=9000 \
 ```
 
 The server will serve both the API and web UI on the same port.
+
+### Docker Deployment
+
+The project includes `Dockerfile` and `docker-compose.yml` for containerized deployment. See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
 
 ## Project Structure
 

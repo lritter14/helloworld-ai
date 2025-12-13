@@ -1,0 +1,43 @@
+# Build artifacts
+bin/
+.tilt/
+*.log
+
+# Development files
+.env
+.env.local
+*.md
+!README.md
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test files
+*_test.go
+testdata/
+
+# Documentation
+AGENTS.md
+ARCHITECTURE_REVIEW.md
+plan.md
+
+# Scripts (not needed in container)
+scripts/
+
+# Tilt
+Tiltfile
+tilt.log
+
+# Swagger (will be generated in build)
+swagger.json
+
+# Vault directories (mounted as volumes)
+vaults/
+

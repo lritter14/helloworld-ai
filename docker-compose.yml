@@ -1,0 +1,65 @@
+version: '3.8'
+
+# Production deployment example for helloworld-ai
+# This compose file demonstrates how to run the API and Qdrant containers.
+# Note: llama.cpp server must be built and run separately on the production server.
+# The llama.cpp server should be accessible at the URL specified in LLM_BASE_URL.
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: helloworld-ai-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  api:
+    image: ghcr.io/${GITHUB_REPOSITORY:-your-username/helloworld-ai}:latest
+    container_name: helloworld-ai-api
+    ports:
+      - "9000:9000"
+    volumes:
+      # Mount vault directories (adjust paths to your production server)
+      - ${VAULT_PERSONAL_PATH}:/vaults/personal:ro
+      - ${VAULT_WORK_PATH}:/vaults/work:ro
+      # Mount data directory for SQLite persistence
+      - ./data:/app/data
+    environment:
+      # LLM Configuration - point to your separately running llama.cpp server
+      - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:8081}
+      - LLM_MODEL=${LLM_MODEL:-Qwen2.5-3B-Instruct-Q4_K_M}
+      - LLM_API_KEY=${LLM_API_KEY:-dummy-key}
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://host.docker.internal:8081}
+      - EMBEDDING_MODEL_NAME=${EMBEDDING_MODEL_NAME:-ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0}
+      - DB_PATH=/app/data/helloworld-ai.db
+      - VAULT_PERSONAL_PATH=/vaults/personal
+      - VAULT_WORK_PATH=/vaults/work
+      # Qdrant Configuration - uses service name when in same compose file
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_COLLECTION=${QDRANT_COLLECTION:-notes}
+      - QDRANT_VECTOR_SIZE=${QDRANT_VECTOR_SIZE:-1024}
+      - API_PORT=9000
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-json}
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  qdrant_storage:
+    driver: local
