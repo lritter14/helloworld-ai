@@ -97,7 +97,7 @@ type ErrorResponse struct {
 //     name: body
 //     required: true
 //     schema:
-//     "$ref": "#/definitions/AskRequest"
+//       "$ref": "#/definitions/AskRequest"
 //
 // responses:
 //
