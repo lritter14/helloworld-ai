@@ -10,17 +10,10 @@ RUN apk add --no-cache git make
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Install swagger CLI tool
-RUN go install github.com/go-swagger/go-swagger/cmd/swagger@latest
-
-# Ensure Go bin directory is in PATH (golang image uses /go as GOPATH by default)
-ENV PATH="${PATH}:/go/bin"
-
 # Copy source code
 COPY . .
 
-# Generate Swagger spec and build binary
-RUN make generate-swagger
+# Build binary
 RUN make build-api
 
 # Runtime stage

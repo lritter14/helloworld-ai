@@ -88,7 +88,7 @@ generate-swagger:
 	@echo "      Swagger UI is available via Tilt at http://localhost:8083"
 
 
-build-api: generate-swagger
+build-api:
 	@mkdir -p bin
 	@go build -o bin/helloworld-ai-api ./cmd/api
 	@echo "Binary built: bin/helloworld-ai-api"
