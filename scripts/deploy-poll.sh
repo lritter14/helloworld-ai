@@ -9,19 +9,36 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_DIR}"
 
-# Configuration
-# Set GITHUB_REPOSITORY environment variable on your production server
-# Example: export GITHUB_REPOSITORY="your-username/helloworld-ai"
-IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY:-your-username/helloworld-ai}:latest"
-COMPOSE_FILE="docker-compose.yml"
-POLL_INTERVAL=${POLL_INTERVAL:-300}  # Default: 5 minutes (300 seconds)
-
-# Colors for output
+# Colors for output (define early so we can use them)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Simple echo function for early logging (before log functions are defined)
+_early_log() {
+    echo -e "${BLUE}[DEBUG]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"
+}
+
+# Load .env file if it exists (similar to how the Go app loads it)
+if [ -f "${PROJECT_DIR}/.env" ]; then
+    _early_log "Loading .env file..."
+    # Export variables from .env file (skip comments and empty lines)
+    set -a
+    source <(grep -v '^#' "${PROJECT_DIR}/.env" | grep -v '^$' | sed 's/^/export /')
+    set +a
+    _early_log "GITHUB_REPOSITORY=${GITHUB_REPOSITORY:-not set}"
+fi
+
+# Configuration
+# GITHUB_REPOSITORY can be set via:
+# 1. Environment variable (export GITHUB_REPOSITORY="your-username/helloworld-ai")
+# 2. .env file (GITHUB_REPOSITORY="your-username/helloworld-ai")
+# If not set, defaults to placeholder (will cause pull to fail)
+IMAGE_NAME="ghcr.io/${GITHUB_REPOSITORY:-your-username/helloworld-ai}:latest"
+COMPOSE_FILE="docker-compose.yml"
+POLL_INTERVAL=${POLL_INTERVAL:-300}  # Default: 5 minutes (300 seconds)
 
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $(date '+%Y-%m-%d %H:%M:%S') - $1"

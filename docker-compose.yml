@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Production deployment example for helloworld-ai
 # This compose file demonstrates how to run the API and Qdrant containers.
 # Note: llama.cpp server must be built and run separately on the production server.
@@ -16,16 +14,21 @@ services:
       - qdrant_storage:/qdrant/storage
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/"]
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/localhost/6333 && echo -e \"GET /healthz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && cat <&3 | grep -q \"healthz check passed\"'"]
       interval: 10s
       timeout: 5s
       retries: 3
-
+    networks:
+      - helloworld-ai-network
   api:
-    image: ghcr.io/${GITHUB_REPOSITORY:-your-username/helloworld-ai}:latest
+    image: ghcr.io/lritter14/helloworld-ai:latest
     container_name: helloworld-ai-api
     ports:
-      - "9000:9000"
+      - "9001:9001"
+    extra_hosts:
+      # Map host.docker.internal to the Docker bridge gateway (for Linux)
+      # This allows containers to access services running on the host
+      - "host.docker.internal:host-gateway"
     volumes:
       # Mount vault directories (adjust paths to your production server)
       - ${VAULT_PERSONAL_PATH}:/vaults/personal:ro
@@ -34,6 +37,7 @@ services:
       - ./data:/app/data
     environment:
       # LLM Configuration - point to your separately running llama.cpp server
+      # Use host.docker.internal to access host services from container (Linux)
       - LLM_BASE_URL=${LLM_BASE_URL:-http://host.docker.internal:8081}
       - LLM_MODEL=${LLM_MODEL:-Qwen2.5-3B-Instruct-Q4_K_M}
       - LLM_API_KEY=${LLM_API_KEY:-dummy-key}
@@ -46,7 +50,7 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - QDRANT_COLLECTION=${QDRANT_COLLECTION:-notes}
       - QDRANT_VECTOR_SIZE=${QDRANT_VECTOR_SIZE:-1024}
-      - API_PORT=9000
+      - API_PORT=9001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FORMAT=${LOG_FORMAT:-json}
     depends_on:
@@ -54,12 +58,26 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9000/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9001/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
-
+    networks:
+      - helloworld-ai-network
+    labels:
+      - "docktail.service.enable=true"
+      - "docktail.service.name=ai"
+      - "docktail.service.port=9001"
+      - "docktail.service.protocol=http"
+      - "docktail.service.service-port=443"
+      - "docktail.service.service-protocol=https"
 volumes:
   qdrant_storage:
     driver: local
+
+
+networks:
+  helloworld-ai-network:
+    name: helloworld-ai-network
+    driver: bridge

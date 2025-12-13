@@ -32,6 +32,18 @@ Before starting the llama.cpp servers, you need to download the required model f
 - **Chat Model:** `bartowski_Qwen2.5-14B-Instruct-GGUF_Qwen2.5-14B-Instruct-Q4_K_M.gguf` (for chat completions)
 - **Embeddings Model:** `ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf` (for embeddings generation)
 
+### Quick Start
+
+The easiest way to download all required models is using the Makefile target:
+
+```bash
+make download-models
+```
+
+This will automatically download both models to `../llama.cpp/models/` and skip any models that already exist.
+
+**Important:** After downloading, ensure your `.env` file uses model names that match the downloaded filenames (without the `.gguf` extension). See the [Configuration](#configuration) section for details.
+
 ### Download Chat Model
 
 ```bash
@@ -73,6 +85,22 @@ curl -L https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/em
 ```
 
 **Note:** Ensure you have sufficient disk space for both models. The chat model is approximately 8.99 GB, and the embeddings model is smaller. The models will be downloaded to `../llama.cpp/models/` relative to the project root.
+
+### Model Naming Convention
+
+When configuring your `.env` file, the model names must match the downloaded filenames **without the `.gguf` extension**. For example:
+
+- If the file is `bartowski_Qwen2.5-14B-Instruct-GGUF_Qwen2.5-14B-Instruct-Q4_K_M.gguf`, use:
+  ```bash
+  LLM_MODEL=Qwen2.5-14B-Instruct-Q4_K_M
+  ```
+
+- If the file is `ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf`, use:
+  ```bash
+  EMBEDDING_MODEL_NAME=ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0
+  ```
+
+The llama.cpp server in router mode will automatically discover models in the `../llama.cpp/models/` directory and load them by name when requested.
 
 ## Configuration
 
@@ -381,6 +409,111 @@ The server will serve both the API and web UI on the same port.
 ### Docker Deployment
 
 The project includes `Dockerfile` and `docker-compose.yml` for containerized deployment. See [DEPLOYMENT.md](DEPLOYMENT.md) for details.
+
+#### Starting llama.cpp Server for Docker Compose
+
+The `docker-compose.yml` file runs the API and Qdrant containers, but **llama.cpp must be started separately** on the host machine (not in Docker). This is because llama.cpp requires direct hardware access and is typically built for the host architecture.
+
+**Prerequisites:**
+
+1. Build llama.cpp (if not already built):
+   ```bash
+   cd /path/to/llama.cpp
+   make
+   ```
+
+2. Download models (see [Model Downloads](#model-downloads) section):
+   ```bash
+   make download-models
+   ```
+
+**Start llama.cpp Server in Router Mode:**
+
+The project uses llama.cpp in router mode, which allows a single server to handle both chat and embeddings models. Start the server with:
+
+```bash
+# Set the path to your llama-server binary
+LLAMA_SERVER=/path/to/llama.cpp/build/bin/llama-server
+
+# Set the path to your models directory
+MODELS_DIR=/path/to/llama.cpp/models
+
+# Start server in router mode (accessible from Docker containers)
+LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS=true $LLAMA_SERVER \
+  --models-dir $MODELS_DIR \
+  --port 8081 \
+  --host 0.0.0.0 \
+  --models-max 4 \
+  --embeddings
+```
+
+**Important Configuration:**
+
+- `--host 0.0.0.0` - **Required** for Docker containers to access the server (not `localhost` or `127.0.0.1`)
+- `--port 8081` - Port must match `LLM_BASE_URL` in your `.env` file
+- `--models-dir` - Points to directory containing your downloaded `.gguf` model files
+- `--embeddings` - Enables embeddings endpoint
+- `--models-max 4` - Maximum number of models to keep loaded in memory
+- `LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS=true` - Allows model-specific parameters via `/models/load` endpoint
+
+**Docker Container Access:**
+
+The API container in `docker-compose.yml` connects to llama.cpp using:
+
+- **Linux**: Use `host.docker.internal:8081` in your `.env` file (Docker automatically resolves this)
+- **Alternative (Linux)**: Use the host's IP address or `172.17.0.1` (default Docker bridge gateway)
+
+Example `.env` configuration:
+
+```bash
+LLM_BASE_URL=http://host.docker.internal:8081
+EMBEDDING_BASE_URL=http://host.docker.internal:8081
+```
+
+**Verify llama.cpp is Running:**
+
+```bash
+# Check if server is responding
+curl http://localhost:8081/models
+
+# Check from inside a Docker container
+docker exec helloworld-ai-api curl http://host.docker.internal:8081/models
+```
+
+**Running as a Service (Optional):**
+
+For production, you may want to run llama.cpp as a systemd service. Create `/etc/systemd/system/llama-server.service`:
+
+```ini
+[Unit]
+Description=llama.cpp Server for helloworld-ai
+After=network.target
+
+[Service]
+Type=simple
+User=your-user
+WorkingDirectory=/path/to/llama.cpp
+Environment="LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS=true"
+ExecStart=/path/to/llama.cpp/build/bin/llama-server \
+  --models-dir /path/to/llama.cpp/models \
+  --port 8081 \
+  --host 0.0.0.0 \
+  --models-max 4 \
+  --embeddings
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then enable and start:
+
+```bash
+sudo systemctl enable llama-server
+sudo systemctl start llama-server
+sudo systemctl status llama-server
+```
 
 ## Project Structure
 
