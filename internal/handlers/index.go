@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync/atomic"
 
 	"helloworld-ai/internal/contextutil"
 	"helloworld-ai/internal/indexer"
@@ -12,12 +13,14 @@ import (
 // IndexHandler handles HTTP requests for triggering re-indexing.
 type IndexHandler struct {
 	indexerPipeline *indexer.Pipeline
+	isIndexing      *atomic.Bool
 }
 
 // NewIndexHandler creates a new IndexHandler.
 func NewIndexHandler(indexerPipeline *indexer.Pipeline) *IndexHandler {
 	return &IndexHandler{
 		indexerPipeline: indexerPipeline,
+		isIndexing:      &atomic.Bool{},
 	}
 }
 
@@ -29,7 +32,15 @@ type IndexResponse struct {
 	Status  string `json:"status"`
 }
 
-// ServeHTTP handles HTTP requests for triggering re-indexing.
+// IndexStatusResponse represents the response from the index status endpoint.
+//
+// swagger:model IndexStatusResponse
+type IndexStatusResponse struct {
+	IsIndexing bool   `json:"is_indexing"`
+	Status     string `json:"status"`
+}
+
+// ServeHTTP handles HTTP requests for triggering re-indexing and checking status.
 //
 // Trigger re-indexing of all markdown files in configured vaults.
 // By default, only changed files are re-indexed. Use the force query parameter
@@ -67,13 +78,42 @@ type IndexResponse struct {
 //	  description: Internal server error
 //	  schema:
 //	    "$ref": "#/definitions/ErrorResponse"
+//
+// swagger:route GET /api/index/status getIndexStatus
+//
+// # Get indexing status
+//
+// Returns the current status of the indexing process.
+//
+// ---
+// produces:
+// - application/json
+// responses:
+//
+//	'200':
+//	  description: Indexing status retrieved successfully
+//	  schema:
+//	    "$ref": "#/definitions/IndexStatusResponse"
 func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := contextutil.LoggerFromContext(ctx)
 
+	// Handle GET request for status
+	if r.Method == http.MethodGet {
+		h.handleStatus(w, r)
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		logger.WarnContext(ctx, "method not allowed", "method", r.Method)
 		h.writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	// Check if indexing is already in progress
+	if h.isIndexing.Load() {
+		logger.WarnContext(ctx, "indexing already in progress")
+		h.writeError(w, http.StatusConflict, "Indexing is already in progress")
 		return
 	}
 
@@ -86,9 +126,14 @@ func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		logger.InfoContext(ctx, "re-indexing triggered via API")
 	}
 
+	// Set indexing flag
+	h.isIndexing.Store(true)
+
 	// Trigger indexing in a goroutine so it doesn't block the HTTP response
 	// Use background context so indexing continues after HTTP request completes
 	go func() {
+		defer h.isIndexing.Store(false)
+
 		indexCtx := context.Background()
 		indexLogger := contextutil.LoggerFromContext(indexCtx)
 		if force {
@@ -116,6 +161,22 @@ func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(IndexResponse{
 		Message: message,
 		Status:  "accepted",
+	})
+}
+
+// handleStatus handles GET requests to check indexing status.
+func (h *IndexHandler) handleStatus(w http.ResponseWriter, r *http.Request) {
+	isIndexing := h.isIndexing.Load()
+	status := "idle"
+	if isIndexing {
+		status = "indexing"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(IndexStatusResponse{
+		IsIndexing: isIndexing,
+		Status:     status,
 	})
 }
 

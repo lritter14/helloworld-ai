@@ -10,12 +10,18 @@
   const folderInput = document.getElementById('folder-filter');
   const vaultInputs = Array.from(document.querySelectorAll('input[name="vaults"]'));
   const detailRadios = Array.from(document.querySelectorAll('input[name="detail-level"]'));
+  const reindexBtn = document.getElementById('reindex-btn');
+  const forceReindexBtn = document.getElementById('force-reindex-btn');
+  const indexStatus = document.getElementById('index-status');
+  let statusPollInterval = null;
 
   init();
 
   function init() {
     askForm.addEventListener('submit', handleSubmit);
     questionInput.addEventListener('keydown', handleKeydown);
+    reindexBtn.addEventListener('click', () => handleReindex(false));
+    forceReindexBtn.addEventListener('click', () => handleReindex(true));
   }
 
   function handleKeydown(event) {
@@ -238,6 +244,90 @@
 
   function showOutput() {
     outputContainer?.classList.remove('hidden');
+  }
+
+  async function handleReindex(force) {
+    // Disable buttons
+    reindexBtn.disabled = true;
+    forceReindexBtn.disabled = true;
+
+    // Clear any existing status polling
+    if (statusPollInterval) {
+      clearInterval(statusPollInterval);
+      statusPollInterval = null;
+    }
+
+    // Show initial status
+    updateIndexStatus('Starting indexing...', 'loading');
+
+    try {
+      // Trigger indexing
+      const url = force ? `${API_URL}/api/index?force=true` : `${API_URL}/api/index`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const error = await buildError(response);
+        throw error;
+      }
+
+      const data = await response.json();
+      updateIndexStatus(force ? 'Force reindexing started...' : 'Reindexing started...', 'loading');
+
+      // Start polling for status
+      startStatusPolling();
+    } catch (err) {
+      const message = err?.message || 'Failed to start indexing.';
+      updateIndexStatus(message, 'error');
+      reindexBtn.disabled = false;
+      forceReindexBtn.disabled = false;
+    }
+  }
+
+  function startStatusPolling() {
+    // Poll every 1 second
+    statusPollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/index/status`);
+        if (!response.ok) {
+          throw new Error('Failed to check status');
+        }
+
+        const data = await response.json();
+        if (!data.is_indexing) {
+          // Indexing is complete
+          clearInterval(statusPollInterval);
+          statusPollInterval = null;
+          updateIndexStatus('Indexing completed successfully!', 'success');
+          reindexBtn.disabled = false;
+          forceReindexBtn.disabled = false;
+        } else {
+          // Still indexing
+          updateIndexStatus('Indexing in progress...', 'loading');
+        }
+      } catch (err) {
+        // On error, stop polling but keep status visible
+        clearInterval(statusPollInterval);
+        statusPollInterval = null;
+        updateIndexStatus('Error checking status: ' + (err?.message || 'Unknown error'), 'error');
+        reindexBtn.disabled = false;
+        forceReindexBtn.disabled = false;
+      }
+    }, 1000);
+  }
+
+  function updateIndexStatus(message, type) {
+    indexStatus.textContent = message;
+    indexStatus.className = 'index-status';
+    if (type === 'loading') {
+      indexStatus.classList.add('loading');
+    } else if (type === 'error') {
+      indexStatus.classList.add('error');
+    } else if (type === 'success') {
+      indexStatus.classList.add('success');
+    }
   }
 
 })();

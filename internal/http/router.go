@@ -56,6 +56,7 @@ func NewRouter(deps *Deps) http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Method(http.MethodGet, "/health", healthHandler)
 		r.Method(http.MethodPost, "/index", indexHandler) // Re-index endpoint
+		r.Method(http.MethodGet, "/index/status", indexHandler) // Index status endpoint
 		r.Route("/v1", func(r chi.Router) {
 			r.Method(http.MethodPost, "/ask", askHandler)
 		})

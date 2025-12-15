@@ -16,6 +16,18 @@
             </div>
         </header>
 
+        <section class="index-actions">
+            <button id="reindex-btn" class="button-secondary" type="button">
+                <span class="button-icon">🔄</span>
+                <span>Reindex</span>
+            </button>
+            <button id="force-reindex-btn" class="button-secondary" type="button">
+                <span class="button-icon">⚡</span>
+                <span>Force Reindex</span>
+            </button>
+            <div id="index-status" class="index-status" role="status" aria-live="polite"></div>
+        </section>
+
         <form id="ask-form" novalidate>
             <section class="filters" aria-labelledby="filter-heading">
                 <div class="filter-group">
