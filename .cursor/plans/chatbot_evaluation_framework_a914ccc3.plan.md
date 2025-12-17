@@ -3,7 +3,7 @@ name: Chatbot Evaluation Framework
 overview: Create a comprehensive Python-based evaluation framework to measure chatbot effectiveness over time, tracking improvements as models, hardware, and strategies change. Includes test suite management (JSONL format), core metrics (Retrieval Recall@K, MRR, Scope Miss Rate, Groundedness, Correctness, Abstention), anchor-based labeling workflow, results storage with latency/cost tracking, and automated reporting. Requires Go API changes for stable chunk IDs (32-char) and debug mode. Supports answerable/unanswerable questions and test categories (factual, multi_hop, recency/conflict).
 todos:
   - id: stable_chunk_ids
-    content: Add stable deterministic chunk IDs to Go API (32-char hash of vault_id + rel_path + heading_path + chunk_index + chunk_text_hash)
+    content: Add stable deterministic chunk IDs to Go API (32-char hash). Use byte offsets or text hash + rolling window instead of chunk_index for stability. Include chunk anchor (rel_path + heading_path + line numbers) in debug response.
     status: pending
   - id: debug_api_mode
     content: Add debug=true flag to /api/v1/ask endpoint returning top K chunks with rel_path, heading_path, scores, and metadata. Add abstained/abstain_reason fields to response.
@@ -12,19 +12,19 @@ todos:
     content: Create EVAL.md documenting core metrics (Recall@K, MRR, Scope Miss Rate, Groundedness, Correctness, Abstention metrics)
     status: pending
   - id: eval_set_creation
-    content: Create initial eval_set.jsonl with 30-50 questions (include answerable/unanswerable, multi_hop, recency/conflict categories)
+    content: Create initial frozen eval_set.jsonl with 20-100 questions (include answerable/unanswerable, multi_hop, recency/conflict categories). Freeze dataset version for comparability.
     status: pending
   - id: labeling_workflow
     content: "Build labeling workflow script (label_eval.py) for marking gold_supports (anchor-based: rel_path + heading_path)"
     status: pending
   - id: python_runner
-    content: Write Python eval runner (run_eval.py) with folder_mode options, latency tracking, cost tracking
+    content: Write Python eval runner (run_eval.py) with folder_mode options, latency tracking, cost tracking, retrieval-only mode (--retrieval-only flag), operational metrics (error rate, coverage by doc type)
     status: pending
   - id: retrieval_metrics
-    content: Implement retrieval metrics calculator (score_retrieval.py) for Recall@K, MRR, Scope Miss Rate, and Attribution Hit Rate (anchor-based matching with prefix match rules)
+    content: Implement retrieval metrics calculator (score_retrieval.py) for Recall@K (any + all for multi-hop), MRR, Precision@K, Scope Miss Rate, and Attribution Hit Rate (anchor-based matching with prefix match rules, multi-hop support groups, recency/conflict rules)
     status: pending
   - id: answer_quality_judges
-    content: Implement answer quality judges (judge_answers.py) - separate groundedness and correctness judges with fixed model, temperature=0, structured JSON output. Add optional judge reliability spot-check (re-judge random subset).
+    content: Implement answer quality judges (judge_answers.py) - separate groundedness (with citation coverage requirement) and correctness judges with fixed model (immutable version), temperature=0, structured JSON output. Add optional judge reliability spot-check (re-judge random subset). Add judge caching (keyed by question+answer+context_hash+judge+prompt).
     status: pending
   - id: abstention_metrics
     content: Implement abstention metrics calculator (score_abstention.py) for answerable=false questions
@@ -37,6 +37,12 @@ todos:
     status: pending
   - id: git_strategy
     content: Set up gitignore for results.jsonl (commit only metrics.json) or implement text redaction
+    status: pending
+  - id: indexing_coverage_stats
+    content: Add indexing coverage stats capture (docs processed, chunks skipped, token distribution) to make eval sensitive to indexing changes
+    status: pending
+  - id: regression_gate
+    content: Implement regression gate (fail if Recall@K/scope_miss_rate/groundedness drop below thresholds, configurable)
     status: pending
 ---
 
@@ -54,18 +60,22 @@ Define and track these core metrics on every run:
 
 1. **Retrieval Recall@K**: Did we retrieve the supporting content? (Binary: any retrieved chunk matches gold_supports)
 2. **MRR (Mean Reciprocal Rank)**: How high was the first correct chunk ranked? (1/rank of first matching chunk)
-3. **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports (only when folder_mode=on)
-4. **Attribution Hit Rate**: For answerable questions, did the final cited references include at least one matching gold_support? (Binary, only for answerable questions)
+3. **Precision@K** (optional): Fraction of top K chunks that match any gold_support anchor (for multi-hop, allow multiple anchors)
+   - Tells you if you dragged in junk that can hurt groundedness + cost/latency
+   - Lightweight: "fraction of top K chunks that match any gold_support anchor"
+4. **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports (only when folder_mode=on)
+5. **Attribution Hit Rate**: For answerable questions, did the final cited references include at least one matching gold_support? (Binary, only for answerable questions)
 
 **Answer Quality Metrics**:
 
-4. **Groundedness (0-5)**: Are all claims in the answer supported by the provided context? (LLM-as-judge)
-5. **Correctness (0-5)**: Does the answer correctly address the question? (LLM-as-judge, considers context + question)
+6. **Groundedness (0-5)**: Are all claims in the answer supported by the provided context? (LLM-as-judge)
+   - Score of 5 requires citations for all major claims (citation coverage is part of groundedness)
+7. **Correctness (0-5)**: Does the answer correctly address the question? (LLM-as-judge, considers context + question)
 
 **Abstention Metrics** (for unanswerable questions):
 
-6. **Abstention Accuracy**: When `answerable=false`, did the model refuse/say it can't find support? (Binary)
-7. **Hallucination Rate on Unanswerable**: When `answerable=false`, did it confidently answer anyway? (Binary)
+8. **Abstention Accuracy**: When `answerable=false`, did the model refuse/say it can't find support? (Binary)
+9. **Hallucination Rate on Unanswerable**: When `answerable=false`, did it confidently answer anyway? (Binary)
 
 These metrics provide objective, repeatable measurements. Retrieval metrics (Recall@K, MRR) don't drift over time. LLM-judge metrics (Groundedness, Correctness) have controlled drift through fixed judge model, prompt version, and temperature=0, enabling meaningful comparisons across runs.
 
@@ -75,7 +85,7 @@ These metrics provide objective, repeatable measurements. Retrieval metrics (Rec
 
 #### A. Stable Chunk IDs
 
-**Requirement**: Each chunk must have a deterministic, repeatable ID across re-indexes.
+**Strongly Recommended**: Each chunk should have a deterministic, repeatable ID across re-indexes. Not strictly required for scoring if anchors (rel_path + heading_path + line numbers) are present in debug response, but valuable for debugging and run diffs.
 
 **Implementation** (Go):
 
@@ -124,6 +134,8 @@ These metrics provide objective, repeatable measurements. Retrieval metrics (Rec
       "snippets": ["RAG systems", "llama.cpp"]
     }
   ],
+  "required_support_groups": null,  // For multi-hop: [[0, 1], [2]] - indices into gold_supports array, OR-of-groups, AND within group
+  "recency_conflict_rule": null,  // For recency/conflict: "cite_newer" | "acknowledge_both" | "cite_both"
   "tags": ["work", "code"],
   "vaults": ["personal"],
   "folders": ["projects"],
@@ -178,10 +190,20 @@ These metrics provide objective, repeatable measurements. Retrieval metrics (Rec
       - Retrieved `heading_path` **starts with** gold `heading_path` (prefix match) - handles cases where chunking depth changes
     - If `snippets` are provided in gold_supports, optionally require snippet hit (chunk text contains snippet)
   - This prevents accidental "misses" when chunking depth or heading formatting changes
+  - **Multi-hop Recall** (for `category: "multi_hop"`):
+    - `Recall_any@K`: At least one support hit (current definition)
+    - `Recall_all@K`: Did we retrieve *all required* supports? (only for tests marked `multi_hop=true` with `required_support_groups`)
+    - Prevents multi-hop questions from looking "green" when only half the needed evidence was retrieved
+  - **Recency/Conflict Cases** (for `category: "recency/conflict"`):
+    - Define what "correct" means in labeling: e.g., "must cite the newer note" or "must acknowledge conflict and cite both"
+    - Store expected behavior in test case metadata
+- **Precision@K** (optional): Fraction of top K chunks that match any gold_support anchor
+  - For multi-hop, allow multiple anchors (count as match if matches any required support)
+  - Lightweight metric: tells you if you dragged in junk
 - **MRR (Mean Reciprocal Rank)**: 1/rank of first matching chunk (0 if no match found)
 - **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports
   - Only calculated when `folder_mode=on` or `folder_mode=on_with_fallback`
-  - Checks if any gold support's folder was excluded by folder selection
+  - Miss if folder selection excludes all gold supports (strict definition)
 - **Attribution Hit Rate**: For answerable questions, did the final cited references include at least one matching `gold_support`?
   - Checks if any reference in the answer's `references` field matches a gold_support (using same match criteria as Recall@K)
   - Catches cases where retrieval found the right content but generation ignored it or cited irrelevant chunks
@@ -219,6 +241,9 @@ These metrics provide objective, repeatable measurements. Retrieval metrics (Rec
 **Judge Configuration** (Critical for preventing drift):
 
 - **Fixed Judge Model**: Pick a single fixed judge model per "season" (e.g., Qwen2.5-14B, or specific cloud model)
+  - **Immutable Version**: Judge model must be pinned to an immutable version or local model build hash
+  - Even with temp=0, **model updates** (cloud) can change behavior
+  - Codify: "judge model is pinned to an immutable version or local model build hash"
 - **Judge Temperature**: Always use `temperature=0` for deterministic scoring
 - **Prompt Version**: Store exact judge prompt version in config.json
 - **Store Judge Input**: Save full judge input payload (question, answer, context) in results for re-judging later
@@ -242,12 +267,14 @@ IMPORTANT:
 - Penalize "confident tone" on unsupported claims
 
 Rate groundedness (0-5):
-- 5: All claims directly supported by context
-- 4: Most claims supported, minor unsupported details
-- 3: Some claims supported, some unsupported
-- 2: Major claims unsupported
+- 5: All claims directly supported by context AND all major claims have citations
+- 4: Most claims supported with citations, minor unsupported details
+- 3: Some claims supported, some unsupported, or missing citations
+- 2: Major claims unsupported or missing citations
 - 1: Answer contradicts context
 - 0: Answer has no relation to context
+
+Note: Score of 5 requires citations for all major claims (citation coverage is part of groundedness).
 
 Return JSON: {
   "score": 0-5,
@@ -397,7 +424,8 @@ results/
       "score_vector": 0.95,
       "score_lexical": 0.80,
       "score_final": 0.90,
-      "text": "First 200 chars..."  // Truncated by default, full text only with --store-full-text
+      "text": "First 200 chars...",  // Truncated by default, full text only with --store-full-text
+      "token_count": 245  // Token count for this chunk
     },
     ...
   ],
@@ -409,7 +437,30 @@ results/
     "embedding_model": "...",
     "judge_model": "qwen2.5-14b",
     "judge_prompt_version": "v1.0",
-    "judge_temperature": 0
+    "judge_temperature": 0,
+    "dataset_version": "abc123...",
+    "index_build_version": "chunker_v1.2+embedding_granite-278m",
+    "retriever_version": "k5+rerank_70_30",
+    "answerer_version": "prompt_v2.0+llm_llama3.2"
+  },
+  "indexing_coverage": {
+    "docs_processed": 1500,
+    "docs_with_0_chunks": 5,
+    "chunks_attempted": 8500,
+    "chunks_embedded": 8450,
+    "chunks_skipped": 50,
+    "chunks_skipped_reasons": {
+      "context_limit_exceeded": 45,
+      "too_small": 5
+    },
+    "chunk_token_stats": {
+      "min": 10,
+      "max": 512,
+      "mean": 245,
+      "p95": 480
+    },
+    "chunker_version": "v1.2",
+    "index_version": "2024-01-15_abc123"
   },
   "latency": {
     "total_ms": 1234,
@@ -480,6 +531,31 @@ results/
     "cost": {
       "judge_total_usd": 0.05,
       "judge_total_tokens": 25000
+    },
+    "indexing_coverage": {
+      "no_chunks_generated_rate": 0.003,
+      "chunks_skipped_due_to_context_rate": 0.006,
+      "docs_processed": 1500,
+      "docs_with_0_chunks": 5,
+      "chunks_attempted": 8500,
+      "chunks_embedded": 8450,
+      "chunks_skipped": 50,
+      "chunk_token_stats": {
+        "min": 10,
+        "max": 512,
+        "mean": 245,
+        "p95": 480
+      }
+    },
+    "operational_metrics": {
+      "error_rate": 0.02,
+      "timeout_rate": 0.01,
+      "empty_response_rate": 0.005,
+      "coverage_by_doc_type": {
+        "markdown": {"processed": 1200, "with_0_chunks": 2, "chunks_skipped": 30},
+        "pdf": {"processed": 200, "with_0_chunks": 2, "chunks_skipped": 15},
+        "code": {"processed": 100, "with_0_chunks": 1, "chunks_skipped": 5}
+      }
     }
   },
   "by_tag": {
@@ -508,9 +584,22 @@ results/
 **Configuration Tracking**:
 
 - **Explicit config capture**: K, rerank weights, folder selection on/off, model names, prompt version
+- **Versioning Strategy** (treat every experiment as a tuple):
+  - **Dataset version**: Frozen eval_set.jsonl commit hash
+  - **Index build version**: chunker_version + embedding_model + chunking params (min/max size, overlap, etc.)
+  - **Retriever version**: vector params, filters, rerankers, K value
+  - **Answerer version**: prompt template version + LLM model
 - **Config hash**: Hash of config for quick comparison
 - **Hardware info** (optional): CPU, GPU, memory (via system calls)
 - **RAG parameters**: Vector/lexical weights, thresholds, folder selection strategy
+- **Indexing Coverage Stats** (make eval sensitive to indexing changes):
+  - `chunk_token_count` per chunk (for token budget analysis)
+  - `index_version` / `chunker_version` (track chunking strategy changes)
+  - `embedding_model` (track embedding model changes)
+  - Coverage stats per run:
+    - Docs processed, docs with 0 chunks
+    - Chunks attempted / embedded / skipped (and why - e.g., "skipped_due_to_context_limit")
+    - Distribution of tokens per chunk (min/max/mean/p95)
 
 **Rationale**: File-based storage is simple, version-controllable, and easy to inspect. Can migrate to database later if needed.
 
@@ -520,16 +609,29 @@ results/
 
 **Features**:
 
-- Reads `eval_set.jsonl`
-- Calls `/api/v1/ask` for each question (with `debug=true`)
-- Captures full response (answer, references, retrieved chunks)
-- Records configuration snapshot (including eval_set commit hash)
+- Reads `eval_set.jsonl` (frozen dataset version)
+- Calls `/api/v1/ask` for each question (with `debug=true`) - runs pipeline end-to-end exactly like UI would
+- Captures full response (answer, references, retrieved chunks with doc path, score, rank)
+- Captures indexing coverage stats (if available from API or index metadata):
+  - Docs processed, docs with 0 chunks
+  - Chunks attempted/embedded/skipped (and why)
+  - Token count per chunk, distribution stats
+- Records configuration snapshot (including eval_set commit hash, index/retriever/answerer versions)
 - Tracks latency breakdown (folder selection, retrieval, generation, judge)
 - Tracks cost (judge tokens, estimated cost)
 - **Storage Strategy**: By default, stores `chunk_id` + truncated text (first 200 chars) to keep runs lightweight and reduce privacy risk
   - Use `--store-full-text` flag to store full chunk text (for detailed debugging)
 - Writes results to `results/<run_id>/results.jsonl`
 - Progress tracking and error handling
+- **Regression Gate**: Optionally fail if key metrics drop below thresholds (configurable)
+- **Judge Caching** (make eval runs cheaper/faster):
+  - Cache judge calls keyed by `(question, answer, topK_context_hash, judge_model, prompt_version)`
+  - If you rerun retrieval-only experiments, you don't want to repay judging cost every time
+  - Cache stored in `cache/judge_cache.jsonl` or similar
+- **Retrieval-Only Mode** (speed iteration on chunking/indexing/rerank):
+  - `--retrieval-only` flag: run retrieval metrics only (fast, no judge cost)
+  - Then optionally run judges later on selected runs: `judge_answers.py --run-id <id>`
+  - Speeds iteration on chunking/indexing/rerank without paying judge cost each time
 
 **Configuration**:
 
@@ -587,6 +689,20 @@ python scripts/compare_runs.py \
 ```
 
 **Rationale**: Quick feedback on whether changes improved or degraded performance.
+
+**Regression Gate** (fail fast on regressions):
+
+Add a regression gate to prevent "fixing chunking" but quietly breaking retrieval:
+
+- Fail the run if key metrics drop by more than threshold:
+  - Recall@K drops by >X% (e.g., >5% absolute)
+  - Scope miss rate rises by >X% (e.g., >10% absolute)
+  - Groundedness average drops by >X points (e.g., >0.5)
+- Configurable thresholds via CLI flags (e.g., `--regression-threshold-recall=0.05`)
+- Exit with non-zero code if regression detected
+- Can be disabled with `--allow-regressions` flag (for exploratory runs)
+
+**Rationale**: Prevents silent regressions from being committed. Forces explicit acknowledgment of trade-offs.
 
 ### 8. Test Case Generation (Future)
 
@@ -669,7 +785,7 @@ python scripts/compare_runs.py \
 
 - **HTTP API**: Python harness calls `/api/v1/ask` endpoint
 - **Debug Mode**: Requires `debug=true` parameter support (Go change needed)
-- **Stable IDs**: Requires chunk IDs in response (Go change needed)
+- **Stable IDs**: Strongly recommended chunk IDs in response (Go change needed, but not strictly required if anchors present)
 - **No RAG Changes**: Evaluation harness is external, doesn't modify RAG code
 
 **Storage Integration**:
@@ -696,18 +812,20 @@ python scripts/compare_runs.py \
 ```
 eval/
 ├── EVAL.md                    # Core metrics definition
-├── eval_set.jsonl             # Test cases (JSONL format)
+├── eval_set.jsonl             # Test cases (JSONL format, frozen)
 ├── results/                   # Evaluation run results (gitignored or redacted)
 │   └── <run_id>/
 │       ├── results.jsonl      # Per-test results (full detail)
 │       ├── metrics.json       # Aggregated metrics (committed to git)
 │       └── config.json        # Run configuration
+├── cache/                     # Judge cache (gitignored)
+│   └── judge_cache.jsonl      # Cached judge calls keyed by (question, answer, context_hash, judge, prompt)
 ├── metrics/                   # Aggregated metrics (optional, for git)
 └── scripts/
-    ├── run_eval.py            # Main evaluation runner
+    ├── run_eval.py            # Main evaluation runner (with --retrieval-only mode)
     ├── label_eval.py          # Labeling workflow tool (anchor-based)
-    ├── score_retrieval.py     # Retrieval metrics calculator (Recall@K, MRR, Scope Miss)
-    ├── judge_answers.py       # Answer quality judges (Groundedness + Correctness)
+    ├── score_retrieval.py     # Retrieval metrics calculator (Recall@K any/all, MRR, Precision@K, Scope Miss)
+    ├── judge_answers.py       # Answer quality judges (Groundedness + Correctness, with caching)
     ├── score_abstention.py    # Abstention metrics calculator
     └── compare_runs.py        # Run comparison tool (with invariants checking)
 ```
@@ -716,17 +834,45 @@ eval/
 
 **1. Stable Chunk IDs** (in `internal/indexer/` or `internal/storage/`):
 
-Modify chunk creation to generate deterministic IDs:
+**Problem**: Using `chunk_index` in ID makes IDs unstable when headings are added/removed or splitting rules change.
 
+**Solution Options** (choose one):
+
+**Option A (Best)**: Use byte offsets in preprocessed text:
 ```go
-func generateChunkID(vaultID int, relPath, headingPath string, chunkIndex int, chunkText string) string {
-    hash := sha256.Sum256([]byte(fmt.Sprintf("%d|%s|%s|%d|%s",
-        vaultID, relPath, headingPath, chunkIndex, chunkText)))
-    return hex.EncodeToString(hash[:])[:32] // Use first 32 chars (128 bits) to minimize collision risk
+func generateChunkID(vaultID int, relPath, headingPath string, startByte, endByte int, chunkText string) string {
+    hash := sha256.Sum256([]byte(fmt.Sprintf("%d|%s|%s|%d|%d|%s",
+        vaultID, relPath, headingPath, startByte, endByte, chunkText)))
+    return hex.EncodeToString(hash[:])[:32]
 }
 ```
 
-**Rationale**: 32 hex chars = 128 bits, minimizing collision risk over large corpus + time. 16 chars (64 bits) has non-zero collision risk.
+**Option B**: Use text hash + rolling window:
+```go
+func generateChunkID(vaultID int, relPath, headingPath string, chunkText string, windowHash string) string {
+    hash := sha256.Sum256([]byte(fmt.Sprintf("%d|%s|%s|%s|%s",
+        vaultID, relPath, headingPath, chunkText, windowHash)))
+    return hex.EncodeToString(hash[:])[:32]
+}
+```
+
+**Option C (Fallback)**: At minimum, include chunk "anchor" in debug response:
+```go
+type RetrievedChunk struct {
+    ChunkID      string  `json:"chunk_id"`  // May change, but useful for debugging
+    RelPath      string  `json:"rel_path"`
+    HeadingPath  string  `json:"heading_path"`
+    StartLine    int     `json:"start_line"`  // Anchor for eval
+    EndLine      int     `json:"end_line"`    // Anchor for eval
+    // ... other fields
+}
+```
+
+**Rationale**: 
+- Chunk IDs are *nice* but not strictly required for scoring (we use anchor-based gold_supports)
+- They're most valuable for debugging and run diffs
+- Including anchor (rel_path + heading_path + line numbers) in debug is often enough for eval + labeling even if chunk_id changes
+- 32 hex chars = 128 bits, minimizing collision risk over large corpus + time
 
 **2. Debug Mode in Ask Handler** (in `internal/handlers/ask.go`):
 
@@ -845,9 +991,9 @@ FOREIGN KEY (run_id) REFERENCES evaluation_runs(id)
 ```json
 {"id": "test_001", "question": "What is the main topic of the project?", "answerable": true, "expected_key_facts": ["RAG systems", "llama.cpp", "Obsidian vaults"], "gold_supports": [{"rel_path": "projects/main.md", "heading_path": "# Overview", "snippets": ["RAG systems"]}], "tags": ["work", "code"], "vaults": ["personal"], "folders": ["projects"], "category": "factual", "difficulty": "easy"}
 {"id": "test_002", "question": "How do I configure the embedding model?", "answerable": true, "expected_key_facts": ["Set EMBEDDING_MODEL env var", "Model must support 512 tokens"], "gold_supports": [{"rel_path": "docs/config.md", "heading_path": "# Setup > ## Embeddings", "snippets": ["EMBEDDING_MODEL", "512 tokens"]}], "tags": ["work", "config"], "vaults": ["personal"], "folders": ["docs"], "category": "factual", "difficulty": "medium"}
-{"id": "test_003", "question": "What did I decide about the API design last week?", "answerable": true, "expected_key_facts": [], "gold_supports": [{"rel_path": "notes/api-design.md", "heading_path": "# Decisions", "snippets": []}], "tags": ["work"], "vaults": ["personal"], "folders": ["notes"], "category": "multi_hop", "difficulty": "hard"}
+{"id": "test_003", "question": "What did I decide about the API design last week?", "answerable": true, "expected_key_facts": [], "gold_supports": [{"rel_path": "notes/api-design.md", "heading_path": "# Decisions", "snippets": []}, {"rel_path": "notes/meeting-notes.md", "heading_path": "# 2024-01-15", "snippets": []}], "required_support_groups": [[0, 1]], "tags": ["work"], "vaults": ["personal"], "folders": ["notes"], "category": "multi_hop", "difficulty": "hard"}
 {"id": "test_004", "question": "What is the capital of Mars?", "answerable": false, "expected_key_facts": [], "gold_supports": [], "tags": ["general"], "vaults": ["personal"], "folders": [], "category": "factual", "difficulty": "easy"}
-{"id": "test_005", "question": "Which note is more recent about the deployment process?", "answerable": true, "expected_key_facts": [], "gold_supports": [{"rel_path": "docs/deployment-v2.md", "heading_path": "# Overview", "snippets": []}], "tags": ["work"], "vaults": ["personal"], "folders": ["docs"], "category": "recency/conflict", "difficulty": "medium"}
+{"id": "test_005", "question": "Which note is more recent about the deployment process?", "answerable": true, "expected_key_facts": [], "gold_supports": [{"rel_path": "docs/deployment-v2.md", "heading_path": "# Overview", "snippets": []}, {"rel_path": "docs/deployment-v1.md", "heading_path": "# Overview", "snippets": []}], "recency_conflict_rule": "cite_newer", "tags": ["work"], "vaults": ["personal"], "folders": ["docs"], "category": "recency/conflict", "difficulty": "medium"}
 ```
 
 **Rationale**: JSONL is simple, version-controllable, and allows incremental updates. One test case per line makes it easy to add/remove cases. Anchor-based `gold_supports` is resilient to chunking changes.
@@ -858,12 +1004,20 @@ FOREIGN KEY (run_id) REFERENCES evaluation_runs(id)
 # Run full evaluation suite
 python scripts/run_eval.py --eval-set eval_set.jsonl
 
+# Run retrieval-only (fast, no judge cost) - speeds iteration on chunking/indexing
+python scripts/run_eval.py \
+  --eval-set eval_set.jsonl \
+  --retrieval-only
+
 # Run with specific configuration
 python scripts/run_eval.py \
   --eval-set eval_set.jsonl \
   --k 10 \
   --rerank-vector-weight 0.7 \
   --rerank-lexical-weight 0.3
+
+# Run judges later on selected run (uses cache if available)
+python scripts/judge_answers.py --run-id <run_id> --judge-model local
 
 # Label test cases (mark gold chunks)
 python scripts/label_eval.py --eval-set eval_set.jsonl
@@ -884,7 +1038,7 @@ python scripts/compare_runs.py \
 
 1. **Setup**: 
 
-   - Create `EVAL.md` documenting the 3 core metrics
+   - Create `EVAL.md` documenting the core metrics and definitions
    - Create initial `eval_set.jsonl` with 30-50 questions
    - Label test cases (mark gold chunk IDs using `label_eval.py`)
 
@@ -913,6 +1067,14 @@ python scripts/compare_runs.py \
 
 **Key Principle**: Only change **one thing** per run to isolate impact.
 
+**Versioning Strategy** (so results are comparable):
+
+When you change indexing, keep retriever+answerer constant for that run. Then flip. Treat every experiment as a tuple:
+- **Dataset version** (frozen eval_set.jsonl)
+- **Index build version** (chunker/normalizer + embedding model + params)
+- **Retriever version** (vector params, filters, rerankers)
+- **Answerer version** (prompt/model)
+
 **Things to Test**:
 
 - Chunk sizes / heading rules
@@ -925,12 +1087,25 @@ python scripts/compare_runs.py \
 
 **Record Every Run Config**: Store full configuration with results for reproducibility.
 
+## Suggested Workflow (Fast Iteration)
+
+**Step 0**: Baseline run on current system → save `run.jsonl` + summary.
+
+**Step 1**: Add instrumentation only (no behavior change) → confirm run-to-run stability.
+
+**Step 2**: Fix the big warnings in a branch (token-budget chunking, fallback chunking) → rebuild index → rerun eval.
+
+**Step 3**: Only then start tuning chunk size/overlap, markdown handling, tables, etc.
+
+**Rationale**: Establish baseline first, then make controlled changes. Prevents chasing noise or breaking things while "fixing" them.
+
 ## Key Metrics Tracked
 
 **Core Metrics** (tracked every run):
 
-- **Retrieval Recall@K**: Did we retrieve the supporting content? (Binary: 0 or 1)
+- **Retrieval Recall@K**: Did we retrieve the supporting content? (Binary: 0 or 1, with Recall_all@K for multi-hop)
 - **MRR (Mean Reciprocal Rank)**: How high was the first correct chunk ranked? (0-1)
+- **Precision@K** (optional): Fraction of top K chunks that match any gold_support anchor (tells you if you dragged in junk)
 - **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports (only when folder_mode=on)
 - **Attribution Hit Rate**: Did the final cited references include at least one matching gold_support? (Binary, only for answerable questions)
 - **Groundedness (0-5)**: Are all claims supported by provided context? (LLM-as-judge)
@@ -943,6 +1118,32 @@ python scripts/compare_runs.py \
 - **Latency**: p50/p95 per test, total suite time
 - **Latency Breakdown**: Separate timings for folder selection, retrieval, generation, judge
 - **Cost**: Judge tokens and estimated cost per run (even if approximate)
+
+**Indexing Coverage Metrics** (make eval sensitive to indexing changes):
+
+- **No Chunks Generated Rate**: Fraction of docs that produced 0 chunks (should trend toward ~0)
+- **Chunks Skipped Due to Context**: Fraction of chunks skipped because they exceeded context limit (should trend toward 0)
+- **Coverage Stats**:
+  - Docs processed, docs with 0 chunks
+  - Chunks attempted / embedded / skipped (and why)
+  - Distribution of tokens per chunk (min/max/mean/p95)
+- **Index Version Info**: chunker_version, embedding_model, index_version
+
+**Success Metrics for Specific Warnings**:
+
+Track improvements on indexing issues:
+- `no_chunks_generated_rate` trending toward ~0 (or explainable exceptions only)
+- `chunks_skipped_due_to_context` trending toward 0
+- Recall@K and MRR improving on queries that hit problematic docs (workout docs, note docs)
+- Ideally groundedness improves (fewer "missing context" answers)
+
+**Operational Metrics** (production reality):
+
+- **Error Rate**: % of cases where API failed / timed out / returned empty
+- **Timeout Rate**: % of cases that timed out
+- **Empty Response Rate**: % of cases that returned empty answer
+- **Coverage by Doc Type** (optional): markdown vs pdf vs code, since chunking failures often cluster by type
+  - Docs processed, docs with 0 chunks, chunks skipped per doc type
 
 **Breakdown Metrics**:
 

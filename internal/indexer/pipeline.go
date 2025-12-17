@@ -287,8 +287,8 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath, folder s
 	// We use conservative limits to avoid hitting the context size limit.
 	// Limit by both count and total character size to handle large chunks.
 	// Using rune count (not byte count) for better approximation of token count.
-	const maxBatchCount = 5    // Max number of chunks per batch
-	const maxBatchChars = 1600 // Max total runes per batch (target ~350-400 tokens, ~4 chars/token)
+	const maxBatchCount = 3    // Max number of chunks per batch
+	const maxBatchChars = 1000 // Max total runes per batch (target ~350-400 tokens, ~4 chars/token)
 	embeddings := make([][]float32, 0, len(chunks))
 
 	i := 0

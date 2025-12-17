@@ -15,7 +15,7 @@ import (
 
 const (
 	minChunkSize = 50
-	maxChunkSize = 1000 // Max runes per chunk (targets ~450 tokens for 512-token embedding model)
+	maxChunkSize = 700 // Max runes per chunk (targets ~450 tokens for 512-token embedding model)
 )
 
 // GoldmarkChunker chunks markdown content using goldmark AST parsing.
