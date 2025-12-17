@@ -61,15 +61,19 @@ Define and track these core metrics on every run:
 1. **Retrieval Recall@K**: Did we retrieve the supporting content? (Binary: any retrieved chunk matches gold_supports)
 2. **MRR (Mean Reciprocal Rank)**: How high was the first correct chunk ranked? (1/rank of first matching chunk)
 3. **Precision@K** (optional): Fraction of top K chunks that match any gold_support anchor (for multi-hop, allow multiple anchors)
+
    - Tells you if you dragged in junk that can hurt groundedness + cost/latency
    - Lightweight: "fraction of top K chunks that match any gold_support anchor"
+
 4. **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports (only when folder_mode=on)
 5. **Attribution Hit Rate**: For answerable questions, did the final cited references include at least one matching gold_support? (Binary, only for answerable questions)
 
 **Answer Quality Metrics**:
 
 6. **Groundedness (0-5)**: Are all claims in the answer supported by the provided context? (LLM-as-judge)
+
    - Score of 5 requires citations for all major claims (citation coverage is part of groundedness)
+
 7. **Correctness (0-5)**: Does the answer correctly address the question? (LLM-as-judge, considers context + question)
 
 **Abstention Metrics** (for unanswerable questions):
@@ -338,10 +342,12 @@ Even with temperature=0, judges can be inconsistent or drift over time. Add a re
 **Implementation** (robust detection):
 
 **Option 1 (Preferred)**: Add abstention as first-class field in Go API response:
+
 - `abstained: bool` - explicit abstention flag
 - `abstain_reason: "no_relevant_context" | "ambiguous_question" | "insufficient_information" | ...` (optional)
 
 **Option 2 (Fallback)**: If Go API changes aren't feasible, use a tiny judge prompt for abstention classification:
+
 - Cheap LLM call (can use same judge model with temperature=0)
 - Consistent classification (better than regex pattern matching)
 - Prompt: "Does this answer indicate the system cannot answer the question? Return JSON: {\"abstained\": true/false, \"confidence\": 0-1}"
@@ -839,6 +845,7 @@ eval/
 **Solution Options** (choose one):
 
 **Option A (Best)**: Use byte offsets in preprocessed text:
+
 ```go
 func generateChunkID(vaultID int, relPath, headingPath string, startByte, endByte int, chunkText string) string {
     hash := sha256.Sum256([]byte(fmt.Sprintf("%d|%s|%s|%d|%d|%s",
@@ -848,6 +855,7 @@ func generateChunkID(vaultID int, relPath, headingPath string, startByte, endByt
 ```
 
 **Option B**: Use text hash + rolling window:
+
 ```go
 func generateChunkID(vaultID int, relPath, headingPath string, chunkText string, windowHash string) string {
     hash := sha256.Sum256([]byte(fmt.Sprintf("%d|%s|%s|%s|%s",
@@ -857,6 +865,7 @@ func generateChunkID(vaultID int, relPath, headingPath string, chunkText string,
 ```
 
 **Option C (Fallback)**: At minimum, include chunk "anchor" in debug response:
+
 ```go
 type RetrievedChunk struct {
     ChunkID      string  `json:"chunk_id"`  // May change, but useful for debugging
@@ -868,7 +877,8 @@ type RetrievedChunk struct {
 }
 ```
 
-**Rationale**: 
+**Rationale**:
+
 - Chunk IDs are *nice* but not strictly required for scoring (we use anchor-based gold_supports)
 - They're most valuable for debugging and run diffs
 - Including anchor (rel_path + heading_path + line numbers) in debug is often enough for eval + labeling even if chunk_id changes
@@ -879,7 +889,9 @@ type RetrievedChunk struct {
 Add `debug` query parameter support:
 
 ```go
-type AskResponse struct {
+-[643wq1	
+type 	
+ AskResponse struct {
     Answer      string          `json:"answer"`
     References  []Reference     `json:"references"`
     Abstained   bool            `json:"abstained,omitempty"` // Explicit abstention flag (preferred for eval)
@@ -1070,6 +1082,7 @@ python scripts/compare_runs.py \
 **Versioning Strategy** (so results are comparable):
 
 When you change indexing, keep retriever+answerer constant for that run. Then flip. Treat every experiment as a tuple:
+
 - **Dataset version** (frozen eval_set.jsonl)
 - **Index build version** (chunker/normalizer + embedding model + params)
 - **Retriever version** (vector params, filters, rerankers)
@@ -1132,6 +1145,7 @@ When you change indexing, keep retriever+answerer constant for that run. Then fl
 **Success Metrics for Specific Warnings**:
 
 Track improvements on indexing issues:
+
 - `no_chunks_generated_rate` trending toward ~0 (or explainable exceptions only)
 - `chunks_skipped_due_to_context` trending toward 0
 - Recall@K and MRR improving on queries that hit problematic docs (workout docs, note docs)

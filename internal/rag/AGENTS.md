@@ -40,11 +40,13 @@ type AskRequest struct {
     Folders  []string `json:"folders,omitempty"` // Prefix matching
     K        int      `json:"k,omitempty"`       // Legacy manual override (auto-selected otherwise)
     Detail   string   `json:"detail,omitempty"`  // "brief", "normal", "detailed" hint
+    Debug    bool     `json:"debug,omitempty"`   // Enable debug mode for detailed retrieval info
 }
 
 type AskResponse struct {
     Answer     string      `json:"answer"`
     References []Reference `json:"references"`
+    Debug      *DebugInfo  `json:"debug,omitempty"` // Debug information when debug mode enabled
 }
 
 type Reference struct {
@@ -133,6 +135,13 @@ type Reference struct {
 
 9. **Build References:**
    Extract metadata from search results to build reference list
+
+10. **Collect Debug Information (if requested):**
+    - If `req.Debug` is true, build debug info from retrieval results
+    - Include all candidates considered during reranking (not just final selection)
+    - Include scores (vector, lexical, final), ranks, and metadata
+    - Include folder selection information (selected and available folders)
+    - Convert folder formats for display (vaultID/folder → vaultName/folder)
 
 ## System Prompt
 
@@ -246,6 +255,47 @@ engine := NewEngine(mockEmbedder, mockVectorStore, "collection",
 - K limits (default, max)
 - Error handling (embedding, vector store, LLM)
 
+## Debug Mode
+
+The RAG engine supports debug mode for evaluation frameworks and debugging:
+
+### Debug Information
+
+When `req.Debug` is true, the response includes:
+
+- **RetrievedChunks:** All candidates considered during reranking (before final selection)
+  - Chunk ID (stable, deterministic)
+  - Rel path, heading path, text
+  - Scores: vector, lexical, final
+  - Rank (1-based)
+- **FolderSelection:** Folder selection information
+  - Selected folders (in order, with vault names)
+  - Available folders (with vault names)
+
+### Usage
+
+```go
+req := AskRequest{
+    Question: "What is the project about?",
+    Debug:    true,
+}
+resp, err := engine.Ask(ctx, req)
+if resp.Debug != nil {
+    // Access debug information
+    for _, chunk := range resp.Debug.RetrievedChunks {
+        fmt.Printf("Chunk %s: score=%.2f, rank=%d\n", 
+            chunk.ChunkID, chunk.ScoreFinal, chunk.Rank)
+    }
+}
+```
+
+### Implementation
+
+Debug information is built by `buildDebugInfo()` method:
+- Collects all candidates from reranking phase
+- Converts folder formats for display
+- Includes full chunk text and metadata
+
 ## Rules
 
 - NO HTTP types - Domain models only
@@ -259,3 +309,4 @@ engine := NewEngine(mockEmbedder, mockVectorStore, "collection",
 - Return references from search result metadata
 - Handle all error returns properly
 - Use `noteRepo.ListUniqueFolders()` to get available folders for selection
+- **Debug mode:** Collect debug information when `req.Debug` is true, include all candidates from reranking phase

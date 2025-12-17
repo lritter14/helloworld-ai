@@ -793,10 +793,98 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	logger.InfoContext(ctx, "RAG query completed", "question_length", len(req.Question), "chunks_used", len(chunks), "answer_length", len(answer))
 
-	return AskResponse{
+	resp := AskResponse{
 		Answer:     answer,
 		References: references,
-	}, nil
+	}
+
+	// Collect debug information if requested
+	if req.Debug {
+		debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, selectedCandidates, orderedFolders, availableFolders, vaultIDToNameMap)
+		resp.Debug = debugInfo
+	}
+
+	return resp, nil
+}
+
+// buildDebugInfo constructs debug information from retrieval results.
+func (e *ragEngine) buildDebugInfo(
+	ctx context.Context,
+	deduplicated []vectorstore.SearchResult,
+	candidates []rerankCandidate,
+	selectedCandidates []rerankCandidate,
+	orderedFolders []string,
+	availableFolders []string,
+	vaultIDToNameMap map[int]string,
+) *DebugInfo {
+	logger := contextutil.LoggerFromContext(ctx)
+
+	// Build retrieved chunks list from all candidates (before final selection)
+	retrievedChunks := make([]RetrievedChunk, 0, len(candidates))
+	for rank, candidate := range candidates {
+		retrievedChunks = append(retrievedChunks, RetrievedChunk{
+			ChunkID:     candidate.result.PointID,
+			RelPath:     candidate.relPath,
+			HeadingPath: candidate.headingPath,
+			ScoreVector: float64(candidate.vectorScore),
+			ScoreLexical: float64(candidate.lexicalScore),
+			ScoreFinal:  float64(candidate.finalScore),
+			Text:        candidate.chunk.Text,
+			Rank:        rank + 1,
+		})
+	}
+
+	// Convert folder format from "vaultID/folder" to "vaultName/folder" for display
+	displayOrderedFolders := make([]string, 0, len(orderedFolders))
+	for _, folder := range orderedFolders {
+		parts := strings.SplitN(folder, "/", 2)
+		if len(parts) == 2 {
+			var vaultID int
+			if _, err := fmt.Sscanf(parts[0], "%d", &vaultID); err == nil {
+				if vaultName, ok := vaultIDToNameMap[vaultID]; ok {
+					displayOrderedFolders = append(displayOrderedFolders, fmt.Sprintf("%s/%s", vaultName, parts[1]))
+				} else {
+					displayOrderedFolders = append(displayOrderedFolders, folder)
+				}
+			} else {
+				displayOrderedFolders = append(displayOrderedFolders, folder)
+			}
+		} else {
+			displayOrderedFolders = append(displayOrderedFolders, folder)
+		}
+	}
+
+	displayAvailableFolders := make([]string, 0, len(availableFolders))
+	for _, folder := range availableFolders {
+		parts := strings.SplitN(folder, "/", 2)
+		if len(parts) == 2 {
+			var vaultID int
+			if _, err := fmt.Sscanf(parts[0], "%d", &vaultID); err == nil {
+				if vaultName, ok := vaultIDToNameMap[vaultID]; ok {
+					displayAvailableFolders = append(displayAvailableFolders, fmt.Sprintf("%s/%s", vaultName, parts[1]))
+				} else {
+					displayAvailableFolders = append(displayAvailableFolders, folder)
+				}
+			} else {
+				displayAvailableFolders = append(displayAvailableFolders, folder)
+			}
+		} else {
+			displayAvailableFolders = append(displayAvailableFolders, folder)
+		}
+	}
+
+	logger.DebugContext(ctx, "building debug info",
+		"retrieved_chunks_count", len(retrievedChunks),
+		"selected_folders_count", len(displayOrderedFolders),
+	)
+
+	return &DebugInfo{
+		RetrievedChunks: retrievedChunks,
+		FolderSelection: &FolderSelection{
+			SelectedFolders:  displayOrderedFolders,
+			AvailableFolders: displayAvailableFolders,
+		},
+	}
 }
 
 func combineScores(vectorScore, lexicalScore float32) float32 {

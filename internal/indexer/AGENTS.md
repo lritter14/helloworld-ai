@@ -130,6 +130,26 @@ The indexer uses SHA256 hashing to detect file changes:
 - Skip re-indexing if hash matches existing note
 - Delete old chunks and re-index if hash differs
 
+### Stable Chunk ID Generation
+
+Chunk IDs are generated deterministically to ensure stability across re-indexes:
+
+- **Format:** SHA256 hash of `vault_id|rel_path|heading_path|chunk_text` truncated to 32 hex characters (128 bits)
+- **Stability:** Same inputs always produce the same chunk ID
+- **Benefits:** Enables tracking chunks across runs for evaluation and debugging
+- **Implementation:** `generateStableChunkID()` function in `pipeline.go`
+
+**Example:**
+```go
+chunkID := generateStableChunkID(
+    vaultID,      // e.g., 1
+    relPath,      // e.g., "projects/main.md"
+    headingPath,  // e.g., "# Overview"
+    chunkText,    // e.g., "This is the content..."
+)
+// Returns: "a1b2c3d4e5f6..." (32 hex characters)
+```
+
 ### Metadata Storage
 
 Each chunk is stored with metadata in Qdrant:
@@ -331,7 +351,8 @@ logger := slog.New(slog.NewTextHandler(io.Discard, nil)) // Suppress logs in tes
 - **Chunk skipping:** Chunks that exceed context size limit are skipped (not indexed) with warnings
 - **Structured errors:** Use `errors.As()` to parse `EmbeddingError` for better error handling
 - **Chunk-to-embedding mapping:** Track which chunks have embeddings to handle skipped chunks
-- **UUID generation:** Use `uuid.New()` for note IDs and chunk IDs
+- **UUID generation:** Use `uuid.New()` for note IDs (chunk IDs use stable hash generation)
+- **Stable chunk IDs:** Use `generateStableChunkID()` for deterministic chunk IDs based on content
 - **Context support:** All operations accept `context.Context` for cancellation
 - **Error wrapping:** Wrap errors with context using `fmt.Errorf("...: %w", err)`
 - **Logging:** Extract logger from context, fallback to default logger

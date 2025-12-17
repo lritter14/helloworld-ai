@@ -210,6 +210,7 @@ The API server serves:
 
 - Web UI at `http://localhost:9000/`
 - RAG API endpoint at `http://localhost:9000/api/v1/ask` (question-answering over indexed notes with intelligent folder selection + lexical reranking)
+  - Supports `?debug=true` query parameter for detailed retrieval information (useful for evaluation frameworks)
 - Index API endpoint at `http://localhost:9000/api/index` (trigger re-indexing)
 - Swagger JSON spec at `http://localhost:9000/api/docs/swagger.json`
 
@@ -223,6 +224,7 @@ On startup, the API server automatically indexes all markdown files from both va
 
 - Scans all `.md` files in personal and work vaults
 - Chunks files by heading hierarchy (min 50 runes, max 1000 runes per chunk)
+- Generates stable, deterministic chunk IDs based on content (vault_id, rel_path, heading_path, chunk_text)
 - Generates embeddings for each chunk with automatic batch size reduction on errors
 - Skips chunks that exceed the embedding model's context size limit (512 tokens) with warnings
 - Stores metadata in SQLite and vectors in Qdrant

@@ -48,6 +48,9 @@ type AskResponse struct {
 
 	// List of references to source chunks used in the answer
 	References []ReferenceResponse `json:"references"`
+
+	// Debug contains debug information when debug mode is enabled (via ?debug=true query parameter).
+	Debug *DebugInfo `json:"debug,omitempty"`
 }
 
 // ReferenceResponse represents a reference in the HTTP response.
@@ -65,6 +68,48 @@ type ReferenceResponse struct {
 
 	// Index of the chunk within the document
 	ChunkIndex int `json:"chunk_index"`
+}
+
+// DebugInfo contains debug information when debug mode is enabled.
+//
+// swagger:model DebugInfo
+type DebugInfo struct {
+	// RetrievedChunks contains all retrieved chunks with scores and ranks.
+	RetrievedChunks []DebugRetrievedChunk `json:"retrieved_chunks"`
+	// FolderSelection contains folder selection information.
+	FolderSelection *DebugFolderSelection `json:"folder_selection,omitempty"`
+}
+
+// DebugRetrievedChunk represents a retrieved chunk with scoring information.
+//
+// swagger:model DebugRetrievedChunk
+type DebugRetrievedChunk struct {
+	// ChunkID is the stable chunk identifier.
+	ChunkID string `json:"chunk_id"`
+	// RelPath is the relative path to the note file.
+	RelPath string `json:"rel_path"`
+	// HeadingPath is the heading hierarchy path (e.g., "# Overview > ## Details").
+	HeadingPath string `json:"heading_path"`
+	// ScoreVector is the vector similarity score.
+	ScoreVector float64 `json:"score_vector"`
+	// ScoreLexical is the lexical/BM25 score (if applicable).
+	ScoreLexical float64 `json:"score_lexical,omitempty"`
+	// ScoreFinal is the combined final score.
+	ScoreFinal float64 `json:"score_final"`
+	// Text is the chunk text (full or truncated).
+	Text string `json:"text"`
+	// Rank is the rank of this chunk in the retrieval results (1-based).
+	Rank int `json:"rank"`
+}
+
+// DebugFolderSelection contains information about folder selection.
+//
+// swagger:model DebugFolderSelection
+type DebugFolderSelection struct {
+	// SelectedFolders is the list of folders selected for search (in order).
+	SelectedFolders []string `json:"selected_folders"`
+	// AvailableFolders is the list of all available folders.
+	AvailableFolders []string `json:"available_folders,omitempty"`
 }
 
 // ErrorResponse represents an error response.
@@ -87,6 +132,9 @@ type ErrorResponse struct {
 // Queries the RAG system with a question and optional filters for vaults and folders.
 // Returns an answer generated from relevant indexed content along with source references.
 //
+// Use the `debug=true` query parameter to include detailed retrieval information
+// (retrieved chunks with scores, folder selection) in the response.
+//
 // ---
 // consumes:
 // - application/json
@@ -97,7 +145,12 @@ type ErrorResponse struct {
 //     name: body
 //     required: true
 //     schema:
-//       "$ref": "#/definitions/AskRequest"
+//     "$ref": "#/definitions/AskRequest"
+//   - in: query
+//     name: debug
+//     type: boolean
+//     description: Enable debug mode to include detailed retrieval information
+//     required: false
 //
 // responses:
 //
@@ -178,6 +231,12 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Parse debug query parameter
+	debug := false
+	if debugParam := r.URL.Query().Get("debug"); debugParam != "" {
+		debug = strings.ToLower(debugParam) == "true" || debugParam == "1"
+	}
+
 	// Convert HTTP request to RAG request
 	detail := strings.ToLower(strings.TrimSpace(req.Detail))
 	switch detail {
@@ -192,6 +251,7 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Folders:  req.Folders,
 		K:        req.K,
 		Detail:   detail,
+		Debug:    debug,
 	}
 
 	// Call RAG engine
@@ -215,6 +275,36 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp := AskResponse{
 		Answer:     ragResp.Answer,
 		References: references,
+	}
+
+	// Include debug information if present
+	if ragResp.Debug != nil {
+		debugChunks := make([]DebugRetrievedChunk, 0, len(ragResp.Debug.RetrievedChunks))
+		for _, chunk := range ragResp.Debug.RetrievedChunks {
+			debugChunks = append(debugChunks, DebugRetrievedChunk{
+				ChunkID:      chunk.ChunkID,
+				RelPath:      chunk.RelPath,
+				HeadingPath:  chunk.HeadingPath,
+				ScoreVector:  chunk.ScoreVector,
+				ScoreLexical: chunk.ScoreLexical,
+				ScoreFinal:   chunk.ScoreFinal,
+				Text:         chunk.Text,
+				Rank:         chunk.Rank,
+			})
+		}
+
+		var folderSelection *DebugFolderSelection
+		if ragResp.Debug.FolderSelection != nil {
+			folderSelection = &DebugFolderSelection{
+				SelectedFolders:  ragResp.Debug.FolderSelection.SelectedFolders,
+				AvailableFolders: ragResp.Debug.FolderSelection.AvailableFolders,
+			}
+		}
+
+		resp.Debug = &DebugInfo{
+			RetrievedChunks: debugChunks,
+			FolderSelection: folderSelection,
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

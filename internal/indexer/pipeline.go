@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -49,6 +50,20 @@ func NewPipeline(
 		collection:   collection,
 		chunker:      NewGoldmarkChunker(),
 	}
+}
+
+// generateStableChunkID generates a deterministic chunk ID based on vault_id, rel_path, heading_path, and chunk text.
+// This ensures chunk IDs remain stable across re-indexes when content doesn't change.
+// Format: SHA256 hash of "vault_id|rel_path|heading_path|chunk_text" truncated to 32 hex characters (128 bits).
+func generateStableChunkID(vaultID int, relPath, headingPath, chunkText string) string {
+	// Create a deterministic string from all components
+	input := fmt.Sprintf("%d|%s|%s|%s", vaultID, relPath, headingPath, chunkText)
+
+	// Compute SHA256 hash
+	hash := sha256.Sum256([]byte(input))
+
+	// Return first 32 hex characters (128 bits) to minimize collision risk
+	return hex.EncodeToString(hash[:])[:32]
 }
 
 // ErrChunkSkipped is returned when a chunk is too large to embed and is skipped.
@@ -402,8 +417,8 @@ func (p *Pipeline) IndexNote(ctx context.Context, vaultID int, relPath, folder s
 			continue
 		}
 
-		// Generate chunk ID
-		chunkID := uuid.New().String()
+		// Generate stable chunk ID based on deterministic hash
+		chunkID := generateStableChunkID(vaultID, relPath, chunk.HeadingPath, chunk.Text)
 
 		// Create chunk record
 		chunkRecords = append(chunkRecords, &storage.ChunkRecord{

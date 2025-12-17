@@ -316,6 +316,14 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 - K defaults to 5 if zero, max 20
 - Vault names validated against vaultRepo
 
+**Debug Mode:**
+- Enable via `?debug=true` or `?debug=1` query parameter
+- When enabled, response includes detailed retrieval information:
+  - All retrieved chunks with scores (vector, lexical, final) and ranks
+  - Folder selection information (selected and available folders)
+  - Chunk metadata (ID, rel_path, heading_path, text)
+- Useful for evaluation frameworks and debugging retrieval quality
+
 ## Rules
 
 - NO business logic - Delegate to service/RAG layer immediately
