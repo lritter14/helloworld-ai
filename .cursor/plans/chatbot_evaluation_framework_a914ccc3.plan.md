@@ -6,7 +6,7 @@ todos:
     content: Add stable deterministic chunk IDs to Go API (32-char hash of vault_id + rel_path + heading_path + chunk_index + chunk_text_hash)
     status: pending
   - id: debug_api_mode
-    content: Add debug=true flag to /api/v1/ask endpoint returning top K chunks with rel_path, heading_path, scores, and metadata
+    content: Add debug=true flag to /api/v1/ask endpoint returning top K chunks with rel_path, heading_path, scores, and metadata. Add abstained/abstain_reason fields to response.
     status: pending
   - id: eval_metrics_doc
     content: Create EVAL.md documenting core metrics (Recall@K, MRR, Scope Miss Rate, Groundedness, Correctness, Abstention metrics)
@@ -21,10 +21,10 @@ todos:
     content: Write Python eval runner (run_eval.py) with folder_mode options, latency tracking, cost tracking
     status: pending
   - id: retrieval_metrics
-    content: Implement retrieval metrics calculator (score_retrieval.py) for Recall@K, MRR, and Scope Miss Rate (anchor-based matching)
+    content: Implement retrieval metrics calculator (score_retrieval.py) for Recall@K, MRR, Scope Miss Rate, and Attribution Hit Rate (anchor-based matching with prefix match rules)
     status: pending
   - id: answer_quality_judges
-    content: Implement answer quality judges (judge_answers.py) - separate groundedness and correctness judges with fixed model, temperature=0, structured JSON output
+    content: Implement answer quality judges (judge_answers.py) - separate groundedness and correctness judges with fixed model, temperature=0, structured JSON output. Add optional judge reliability spot-check (re-judge random subset).
     status: pending
   - id: abstention_metrics
     content: Implement abstention metrics calculator (score_abstention.py) for answerable=false questions
@@ -33,7 +33,7 @@ todos:
     content: Create run comparison tool (compare_runs.py) with eval configuration invariants checking
     status: pending
   - id: results_storage
-    content: Design results storage format (JSONL per run + metrics JSON) with latency breakdown, cost tracking, judge input storage
+    content: Design results storage format (JSONL per run + metrics JSON) with latency breakdown, cost tracking, judge input storage. Default to truncated chunk text (200 chars), full text only with --store-full-text flag.
     status: pending
   - id: git_strategy
     content: Set up gitignore for results.jsonl (commit only metrics.json) or implement text redaction
@@ -55,6 +55,7 @@ Define and track these core metrics on every run:
 1. **Retrieval Recall@K**: Did we retrieve the supporting content? (Binary: any retrieved chunk matches gold_supports)
 2. **MRR (Mean Reciprocal Rank)**: How high was the first correct chunk ranked? (1/rank of first matching chunk)
 3. **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports (only when folder_mode=on)
+4. **Attribution Hit Rate**: For answerable questions, did the final cited references include at least one matching gold_support? (Binary, only for answerable questions)
 
 **Answer Quality Metrics**:
 
@@ -66,7 +67,7 @@ Define and track these core metrics on every run:
 6. **Abstention Accuracy**: When `answerable=false`, did the model refuse/say it can't find support? (Binary)
 7. **Hallucination Rate on Unanswerable**: When `answerable=false`, did it confidently answer anyway? (Binary)
 
-These metrics provide objective, repeatable measurements that don't drift over time and handle both answerable and unanswerable questions.
+These metrics provide objective, repeatable measurements. Retrieval metrics (Recall@K, MRR) don't drift over time. LLM-judge metrics (Groundedness, Correctness) have controlled drift through fixed judge model, prompt version, and temperature=0, enabling meaningful comparisons across runs.
 
 ## Architecture
 
@@ -170,12 +171,21 @@ These metrics provide objective, repeatable measurements that don't drift over t
 **Metrics**:
 
 - **Recall@K**: Binary - any retrieved chunk matches `gold_supports`? (1 if yes, 0 if no)
-  - Match criteria: chunk's `rel_path` + `heading_path` matches any entry in `gold_supports`
-  - Optional: also check if chunk text contains any `snippets` from gold_supports
+  - **Match Definition** (deterministic normalization):
+    - Normalize `heading_path`: strip extra spaces, consistent delimiter (` > `), same depth rules
+    - A retrieved chunk matches a gold support if:
+      - Same `rel_path` (exact match), and
+      - Retrieved `heading_path` **starts with** gold `heading_path` (prefix match) - handles cases where chunking depth changes
+    - If `snippets` are provided in gold_supports, optionally require snippet hit (chunk text contains snippet)
+  - This prevents accidental "misses" when chunking depth or heading formatting changes
 - **MRR (Mean Reciprocal Rank)**: 1/rank of first matching chunk (0 if no match found)
 - **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports
   - Only calculated when `folder_mode=on` or `folder_mode=on_with_fallback`
   - Checks if any gold support's folder was excluded by folder selection
+- **Attribution Hit Rate**: For answerable questions, did the final cited references include at least one matching `gold_support`?
+  - Checks if any reference in the answer's `references` field matches a gold_support (using same match criteria as Recall@K)
+  - Catches cases where retrieval found the right content but generation ignored it or cited irrelevant chunks
+  - Only computed for questions where `answerable=true`
 
 **Implementation**:
 
@@ -268,7 +278,19 @@ Rate correctness (0-5):
 Return JSON: {"score": 0-5, "reasoning": "..."}
 ```
 
-**Rationale**:
+**Judge Reliability Spot-Check** (optional but recommended):
+
+Even with temperature=0, judges can be inconsistent or drift over time. Add a reliability check:
+
+- Re-judge a small random subset (e.g., n=10-20 questions, ~5-10% of eval set) using:
+  - **Option A**: Second judge model (different model, same prompt)
+  - **Option B**: Same judge with slightly different prompt version
+- Compute disagreement rate (score difference > 1 point or different binary classification)
+- Report disagreement rate in metrics.json as `judge_reliability: {"disagreement_rate": 0.15, "spot_check_n": 20}`
+
+**Rationale**: Early warning that judge is becoming a bottleneck or drifting. High disagreement (>20%) suggests judge instability.
+
+**Rationale** (for main judges):
 
 - Groundedness detects hallucination (claims not in context)
 - Correctness detects wrong interpretation (even if grounded)
@@ -282,17 +304,22 @@ Return JSON: {"score": 0-5, "reasoning": "..."}
 **Metrics** (only for questions where `answerable=false`):
 
 - **Abstention Accuracy**: Did the model refuse/say it can't find support? (Binary: 1 if abstained, 0 if answered)
-  - Detection: Look for phrases like "I don't know", "I can't find", "not in my knowledge base", etc.
-  - Or: Check if answer explicitly states it cannot answer
 - **Hallucination Rate on Unanswerable**: Did it confidently answer anyway? (Binary: 1 if answered confidently, 0 if abstained)
   - Inverse of abstention accuracy
   - High rate indicates the system is hallucinating on unanswerable questions
 
-**Implementation**:
+**Implementation** (robust detection):
 
-- Simple pattern matching or LLM classification of answer text
-- Only computed for test cases with `answerable=false`
-- Stored per-question for inspection
+**Option 1 (Preferred)**: Add abstention as first-class field in Go API response:
+- `abstained: bool` - explicit abstention flag
+- `abstain_reason: "no_relevant_context" | "ambiguous_question" | "insufficient_information" | ...` (optional)
+
+**Option 2 (Fallback)**: If Go API changes aren't feasible, use a tiny judge prompt for abstention classification:
+- Cheap LLM call (can use same judge model with temperature=0)
+- Consistent classification (better than regex pattern matching)
+- Prompt: "Does this answer indicate the system cannot answer the question? Return JSON: {\"abstained\": true/false, \"confidence\": 0-1}"
+
+**Rationale**: Pattern matching is noisy (models phrase refusals differently). First-class API field is most reliable; judge prompt is good fallback.
 
 **Rationale**: Prevents "Recall@K is always 0" from being misinterpreted as "retrieval is broken" when the correct behavior is to abstain. Critical for real-world RAG systems.
 
@@ -370,7 +397,7 @@ results/
       "score_vector": 0.95,
       "score_lexical": 0.80,
       "score_final": 0.90,
-      "text": "..."
+      "text": "First 200 chars..."  // Truncated by default, full text only with --store-full-text
     },
     ...
   ],
@@ -394,7 +421,8 @@ results/
   "retrieval_metrics": {
     "recall_at_k": 1.0,
     "mrr": 0.5,
-    "scope_miss": false
+    "scope_miss": false,
+    "attribution_hit": true
   },
   "groundedness": {
     "score": 4.5,
@@ -413,7 +441,8 @@ results/
   "judge_input": {
     "question": "...",
     "answer": "...",
-    "context_chunks": ["...", "..."]
+    "context_chunk_ids": ["chunk_abc123", "chunk_def456"],
+    "context_chunks_truncated": ["First 200 chars of chunk 1...", "First 200 chars of chunk 2..."]
   },
   "cost": {
     "judge_tokens": 500,
@@ -434,10 +463,15 @@ results/
     "recall_at_k_avg": 0.85,
     "mrr_avg": 0.72,
     "scope_miss_rate": 0.05,
+    "attribution_hit_rate": 0.88,
     "groundedness_avg": 4.2,
     "correctness_avg": 4.0,
     "abstention_accuracy": 0.90,
     "hallucination_rate_unanswerable": 0.10,
+    "judge_reliability": {
+      "disagreement_rate": 0.15,
+      "spot_check_n": 20
+    },
     "latency": {
       "p50_ms": 1200,
       "p95_ms": 2500,
@@ -492,6 +526,8 @@ results/
 - Records configuration snapshot (including eval_set commit hash)
 - Tracks latency breakdown (folder selection, retrieval, generation, judge)
 - Tracks cost (judge tokens, estimated cost)
+- **Storage Strategy**: By default, stores `chunk_id` + truncated text (first 200 chars) to keep runs lightweight and reduce privacy risk
+  - Use `--store-full-text` flag to store full chunk text (for detailed debugging)
 - Writes results to `results/<run_id>/results.jsonl`
 - Progress tracking and error handling
 
@@ -526,6 +562,7 @@ python scripts/run_eval.py \
   --judge-model qwen2.5-14b \
   --judge-temperature 0 \
   --output-dir results
+  # Optional: --store-full-text (stores full chunk text, not just truncated)
 ```
 
 ### 7. Run Comparison (`compare_runs.py`)
@@ -699,6 +736,8 @@ Add `debug` query parameter support:
 type AskResponse struct {
     Answer      string          `json:"answer"`
     References  []Reference     `json:"references"`
+    Abstained   bool            `json:"abstained,omitempty"` // Explicit abstention flag (preferred for eval)
+    AbstainReason string        `json:"abstain_reason,omitempty"` // Optional: "no_relevant_context", "ambiguous_question", etc.
     Debug       *DebugInfo      `json:"debug,omitempty"` // Only if debug=true
 }
 
@@ -893,6 +932,7 @@ python scripts/compare_runs.py \
 - **Retrieval Recall@K**: Did we retrieve the supporting content? (Binary: 0 or 1)
 - **MRR (Mean Reciprocal Rank)**: How high was the first correct chunk ranked? (0-1)
 - **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports (only when folder_mode=on)
+- **Attribution Hit Rate**: Did the final cited references include at least one matching gold_support? (Binary, only for answerable questions)
 - **Groundedness (0-5)**: Are all claims supported by provided context? (LLM-as-judge)
 - **Correctness (0-5)**: Does the answer correctly address the question? (LLM-as-judge)
 - **Abstention Accuracy**: When `answerable=false`, did the model refuse? (Binary, only for unanswerable questions)
@@ -924,7 +964,7 @@ python scripts/compare_runs.py \
 
 - Run ask with `K=20` and `debug=true`
 - Mark which chunks contain the answer
-- Store as `gold_chunk_ids` in JSONL
+- Store as `gold_supports` (anchor-based: rel_path + heading_path) in JSONL
 
 **Maintenance**:
 
