@@ -365,12 +365,14 @@ The project follows Go best practices:
 The project includes automated deployment via GitHub Actions and Docker. See [DEPLOYMENT.md](DEPLOYMENT.md) for complete setup instructions.
 
 **Quick Overview:**
+
 - GitHub Actions builds and tests on every push
 - Docker image is pushed to GitHub Container Registry (GHCR)
 - Deployment triggered via TailNet SSH to your home PC
 - Graceful rolling updates with health checks
 
 **Prerequisites:**
+
 - Docker and Docker Compose on home PC
 - TailNet/Tailscale configured
 - GitHub repository secrets configured
@@ -542,10 +544,12 @@ The API is fully documented using Swagger/OpenAPI 2.0 annotations. The specifica
 ### Accessing API Documentation
 
 **Swagger UI (Interactive):**
+
 - When using Tilt: `http://localhost:8082/docs`
 - Or run manually: `swagger serve cmd/api/swagger.json`
 
 **Swagger JSON (Raw):**
+
 - `http://localhost:9000/api/docs/swagger.json`
 
 ### Generating Swagger Spec

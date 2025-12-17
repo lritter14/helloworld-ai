@@ -13,29 +13,34 @@ This document provides a comprehensive architecture review of the HelloWorld AI 
 ### 1.1 Strengths
 
 #### ✅ Layered Architecture
+
 - **Excellent separation of concerns** with distinct layers (handlers, service, storage, vectorstore, rag, indexer, vault, llm)
 - **Consumer-first interface design** - interfaces defined in consuming packages
 - **Clear dependency flow** - outer layers depend on inner layers, not vice versa
 - **Data structure locality** - each layer defines its own DTOs, avoiding shared model packages
 
 #### ✅ Error Handling
+
 - **Structured error types** (`ErrNotFound`, `ErrInvalidInput`, `EmbeddingError`)
 - **Proper error wrapping** using `fmt.Errorf("...: %w", err)`
 - **Context-aware error handling** with context cancellation support
 - **HTTP error mapping** in handlers with appropriate status codes
 
 #### ✅ Context Usage
+
 - **Consistent context passing** as first parameter throughout
 - **Context cancellation** support in long-running operations (indexing, scanning)
 - **Context-aware logging** with logger extraction from context
 
 #### ✅ Testing Strategy
+
 - **Comprehensive unit tests** with mocks using `gomock`
 - **Test isolation** with temporary directories
 - **External test packages** to avoid import cycles
 - **Log suppression** in tests for cleaner output
 
 #### ✅ Code Organization
+
 - **Clear package boundaries** with well-defined responsibilities
 - **Constructor functions** (`New*`) for dependency injection
 - **Repository pattern** for data access abstraction
@@ -48,6 +53,7 @@ This document provides a comprehensive architecture review of the HelloWorld AI 
 **Issue:** Error type checking uses string matching in handlers rather than structured error types.
 
 **Current Implementation:**
+
 ```go
 // internal/handlers/ask.go:252-260
 errMsg := strings.ToLower(err.Error())
@@ -81,6 +87,7 @@ if errors.Is(err, vectorstore.ErrVectorStore) {
 **Issue:** Using `http.DefaultClient` without timeouts or connection pooling configuration.
 
 **Current Implementation:**
+
 ```go
 // internal/llm/client.go:28
 client: http.DefaultClient,
@@ -109,6 +116,7 @@ client: &http.Client{
 **Issue:** SQLite connection pool settings not explicitly configured.
 
 **Current Implementation:**
+
 ```go
 // internal/storage/database.go
 db.SetMaxOpenConns(1) // SQLite limitation
@@ -135,6 +143,7 @@ db.Exec("PRAGMA journal_mode=WAL")
 **Issue:** No graceful shutdown handling for HTTP server.
 
 **Current Implementation:**
+
 ```go
 // cmd/api/main.go:158
 if err := nethttp.ListenAndServe(addr, router); err != nil {
@@ -176,24 +185,28 @@ if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 ### 2.1 Strengths
 
 #### ✅ Hybrid Retrieval Strategy
+
 - **Vector search + lexical reranking** - excellent approach combining semantic and keyword matching
 - **Folder-based scoping** with LLM-assisted folder selection
 - **Score combination** (70% vector, 30% lexical) with configurable weights
 - **Threshold filtering** to remove low-quality results
 
 #### ✅ Intelligent Chunking
+
 - **Heading hierarchy-based chunking** using goldmark AST parsing
 - **Size constraints** (50-1000 runes) with intelligent merging/splitting
 - **Context-aware chunking** that respects document structure
 - **Hash-based change detection** to skip unchanged files
 
 #### ✅ Embedding Handling
+
 - **Automatic batch size reduction** on context size errors
 - **Chunk skipping** for oversized chunks (exceeding 512 tokens)
 - **Vector size validation** at startup (fail-fast)
 - **Proper error handling** for embedding API failures
 
 #### ✅ RAG Pipeline
+
 - **Multi-vault support** with vault filtering
 - **Folder-based filtering** with prefix matching
 - **Dynamic K selection** based on question complexity and detail level
@@ -206,6 +219,7 @@ if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 **Issue:** No explicit context window management for LLM prompts. Large contexts may exceed model limits.
 
 **Current Implementation:**
+
 ```go
 // internal/rag/engine.go:741-752
 contextBuilder.WriteString("--- Context from notes ---\n\n")
@@ -247,6 +261,7 @@ func buildContextWithLimit(chunks []chunkData, maxTokens int) string {
 **Issue:** Lexical scoring is simple and may not capture semantic relationships well.
 
 **Current Implementation:**
+
 ```go
 // internal/rag/rerank.go:22-68
 func lexicalScore(query, chunkText, headingPath string) float32 {
@@ -258,6 +273,7 @@ func lexicalScore(query, chunkText, headingPath string) float32 {
 ```
 
 **Recommendation:** Enhance lexical scoring with:
+
 1. **TF-IDF weighting** for better term importance
 2. **Phrase matching** for multi-word queries
 3. **Synonym expansion** (optional, requires wordnet or similar)
@@ -320,6 +336,7 @@ func createOverlappingChunks(chunks []Chunk) []Chunk {
 **Issue:** No query expansion or reformulation before embedding.
 
 **Current Implementation:**
+
 ```go
 // internal/rag/engine.go:370
 embeddings, err := e.embedder.EmbedTexts(ctx, []string{req.Question})
@@ -355,6 +372,7 @@ Return only the alternative phrasings, one per line.`, question)
 ### 3.1 Current Performance Characteristics
 
 #### ✅ Strengths
+
 - **Hash-based change detection** - skips unchanged files during indexing
 - **Batch embedding generation** - processes multiple chunks efficiently
 - **Deduplication** - removes duplicate search results
@@ -367,6 +385,7 @@ Return only the alternative phrasings, one per line.`, question)
 **Issue:** Indexing blocks server startup, potentially taking minutes for large vaults.
 
 **Current Implementation:**
+
 ```go
 // cmd/api/main.go:121-127
 if err := indexerPipeline.IndexAll(ctx); err != nil {
@@ -398,6 +417,7 @@ go func() {
 **Issue:** Searching each vault/folder sequentially instead of in parallel.
 
 **Current Implementation:**
+
 ```go
 // internal/rag/engine.go:467-480
 for _, vaultID := range vaultIDs {
@@ -452,6 +472,7 @@ for sr := range resultChan {
 **Issue:** Fetching chunk texts sequentially from database during reranking.
 
 **Current Implementation:**
+
 ```go
 // internal/rag/engine.go:590
 chunk, err := e.chunkRepo.GetByID(ctx, result.PointID)
@@ -487,12 +508,14 @@ chunk := chunkMap[result.PointID]
 **Issue:** LLM call for folder selection adds latency to every query.
 
 **Current Implementation:**
+
 ```go
 // internal/rag/engine.go:443
 orderedFolders := e.selectRelevantFolders(ctx, req.Question, availableFolders, req.Folders, vaultIDs, vaultIDToNameMap)
 ```
 
-**Recommendation:** 
+**Recommendation:**
+
 1. **Cache folder selections** for similar queries
 2. **Make folder selection optional** (skip if user provides folders)
 3. **Use faster model** for folder selection (if available)
@@ -527,7 +550,8 @@ if userFolders := req.Folders; len(userFolders) > 0 {
 
 ### 4.1 Current Quality Mechanisms
 
-#### ✅ Strengths
+#### ✅ Quality Strengths
+
 - **Hybrid retrieval** (vector + lexical) improves precision
 - **Reranking** with score thresholds filters low-quality results
 - **System prompt** instructs LLM to cite sources
@@ -622,11 +646,13 @@ func askWithIteration(ctx context.Context, req AskRequest) (AskResponse, error) 
 **Issue:** System prompt is basic and doesn't leverage advanced prompting techniques.
 
 **Current Implementation:**
+
 ```go
 systemPrompt := "You are a helpful assistant that answers questions based on the provided context..."
 ```
 
 **Recommendation:** Enhance prompt with:
+
 1. **Few-shot examples** for better formatting
 2. **Chain-of-thought** prompting for complex questions
 3. **Output format specification** (structured responses)
@@ -807,27 +833,31 @@ func rateLimitMiddleware(limiter *rate.Limiter) func(http.Handler) http.Handler 
 ## 7. Implementation Roadmap
 
 ### Phase 1: Critical Fixes (Week 1)
+
 - HTTP client timeouts
 - Asynchronous indexing
 - Health check endpoint
 
-PHASE 1.2
+### Phase 1.2
+
 - Graceful shutdown
 
-
 ### Phase 2: Performance (Week 2)
+
 - Parallel vector searches
 - Batch chunk fetching
 - Context window management
 - Folder selection caching
 
 ### Phase 3: Quality Improvements (Week 3)
+
 - Enhanced lexical scoring
 - Improved prompt engineering
 - Structured error types
 - Metrics collection
 
 ### Phase 4: Advanced Features (Week 4+)
+
 - Query expansion
 - Answer verification
 - Multi-step reasoning
@@ -847,5 +877,3 @@ PHASE 1.2
 **Document Version:** 1.0  
 **Last Updated:** 2024  
 **Reviewer:** Architecture Review Team
-
-
