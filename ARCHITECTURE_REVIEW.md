@@ -380,7 +380,7 @@ Return only the alternative phrasings, one per line.`, question)
 
 #### ⚠️ Performance Bottlenecks
 
-**1. Synchronous Indexing at Startup**
+##### 1. Synchronous Indexing at Startup
 
 **Issue:** Indexing blocks server startup, potentially taking minutes for large vaults.
 
@@ -412,7 +412,7 @@ go func() {
 
 ---
 
-**2. Sequential Vector Searches**
+##### 2. Sequential Vector Searches
 
 **Issue:** Searching each vault/folder sequentially instead of in parallel.
 
@@ -467,7 +467,7 @@ for sr := range resultChan {
 
 ---
 
-**3. Chunk Text Fetching**
+##### 3. Chunk Text Fetching
 
 **Issue:** Fetching chunk texts sequentially from database during reranking.
 
@@ -503,7 +503,7 @@ chunk := chunkMap[result.PointID]
 
 ---
 
-**4. LLM Folder Selection Overhead**
+##### 4. LLM Folder Selection Overhead
 
 **Issue:** LLM call for folder selection adds latency to every query.
 

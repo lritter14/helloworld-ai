@@ -389,6 +389,7 @@ func WrapError(err error, msg string) error {
 ### 6.2 Log Level Decision Tree
 
 **Use Debug when:**
+
 - Logging detailed internal state for troubleshooting
 - Logging full request/response payloads (non-sensitive)
 - Logging skip decisions (e.g., "skipping unchanged file")
@@ -396,18 +397,21 @@ func WrapError(err error, msg string) error {
 - Logging intermediate calculation results
 
 **Use Info when:**
+
 - Logging successful operations (indexing completed, request processed)
 - Logging important state changes (server started, database ready)
 - Logging request summaries (HTTP requests, RAG queries)
 - Logging operational milestones
 
 **Use Warn when:**
+
 - Logging validation failures (invalid input, unknown vault)
 - Logging recoverable errors (failed to delete old chunks, continue anyway)
 - Logging missing optional data (vault name not found, using fallback)
 - Logging deprecation warnings
 
 **Use Error when:**
+
 - Logging unrecoverable errors (database connection failed)
 - Logging external service failures (LLM request failed)
 - Logging critical issues requiring attention
@@ -465,6 +469,7 @@ Logging is configured via environment variables:
 - `LOG_FORMAT`: Output format (text, json) - default: text
 
 **Production Recommendations:**
+
 - Use INFO level in production
 - Use JSON format in production for better log aggregation
 - Use DEBUG level only for troubleshooting

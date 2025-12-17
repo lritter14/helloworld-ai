@@ -48,6 +48,7 @@ make
 ```
 
 Ensure the llama.cpp server is:
+
 - Accessible at the URL you'll configure in `LLM_BASE_URL`
 - Running on a port that's accessible from Docker containers (use `host.docker.internal:8081` if running on host)
 - Configured with the models you need (chat and embeddings)
@@ -106,11 +107,13 @@ LOG_FORMAT=json
 Edit `docker-compose.yml` and:
 
 1. Update the image reference to match your GitHub repository:
+
    ```yaml
    image: ghcr.io/your-username/helloworld-ai:latest
    ```
 
 2. Update the volume mounts for your vaults:
+
    ```yaml
    volumes:
      - /path/to/your/personal/vault:/vaults/personal:ro
@@ -153,6 +156,7 @@ export GITHUB_REPOSITORY="your-username/helloworld-ai"
 ```
 
 This will:
+
 - Check for new images
 - Pull the latest image from GHCR
 - Start Qdrant and API containers
@@ -178,6 +182,7 @@ curl http://localhost:9000/health
 ## How Polling Works
 
 The `scripts/deploy-poll.sh` script:
+
 - Compares the current running container's image digest with the latest in GHCR
 - If a new image is available, pulls it and updates the container
 - Performs graceful rolling updates with health checks
@@ -190,6 +195,7 @@ The `scripts/deploy-poll.sh` script:
 - **llama.cpp**: LLM server (port 8081) - runs separately on host, NOT in Docker
 
 The API container connects to:
+
 - Qdrant via service name `qdrant:6333` (same Docker network)
 - llama.cpp via `host.docker.internal:8081` (if llama.cpp is on the host)
 
@@ -198,6 +204,7 @@ The API container connects to:
 ### llama.cpp Connection Issues
 
 If the API can't connect to llama.cpp:
+
 - Verify llama.cpp server is running: `curl http://localhost:8081/models`
 - Check `LLM_BASE_URL` in your `.env` file
 - For Docker, use `host.docker.internal:8081` if llama.cpp is on the host
@@ -227,6 +234,7 @@ docker inspect helloworld-ai-api | grep -A 10 Health
 ### Vault Path Issues
 
 Ensure vault paths in `docker-compose.yml` are:
+
 - Absolute paths (not relative)
 - Accessible by Docker
 - Mounted as read-only (`:ro`)
