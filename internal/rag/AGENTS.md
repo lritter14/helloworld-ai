@@ -44,9 +44,11 @@ type AskRequest struct {
 }
 
 type AskResponse struct {
-    Answer     string      `json:"answer"`
-    References []Reference `json:"references"`
-    Debug      *DebugInfo  `json:"debug,omitempty"` // Debug information when debug mode enabled
+    Answer        string      `json:"answer"`
+    References    []Reference `json:"references"`
+    Abstained     bool        `json:"abstained,omitempty"`     // Explicit abstention flag
+    AbstainReason string      `json:"abstain_reason,omitempty"` // Reason for abstention
+    Debug         *DebugInfo  `json:"debug,omitempty"`         // Debug information when debug mode enabled
 }
 
 type Reference struct {
@@ -292,9 +294,58 @@ if resp.Debug != nil {
 ### Implementation
 
 Debug information is built by `buildDebugInfo()` method:
+
 - Collects all candidates from reranking phase
 - Converts folder formats for display
 - Includes full chunk text and metadata
+
+## Abstention
+
+The RAG engine supports explicit abstention when no relevant content is found:
+
+### Abstention Behavior
+
+The engine sets `Abstained: true` and `AbstainReason` in the following cases:
+
+1. **No Search Results:** When vector search returns no results
+   - `Abstained: true`
+   - `AbstainReason: "no_relevant_context"`
+
+2. **No Candidates After Vector Threshold:** When all candidates are filtered out due to low vector scores
+   - `Abstained: true`
+   - `AbstainReason: "no_relevant_context"`
+
+3. **No Candidates After Final Score Threshold:** When all candidates are filtered out after reranking
+   - `Abstained: true`
+   - `AbstainReason: "no_relevant_context"`
+
+### Abstention Reasons
+
+Current supported reasons:
+
+- `"no_relevant_context"`: No relevant chunks found in the indexed content
+
+Future reasons (for LLM-based abstention detection):
+
+- `"ambiguous_question"`: Question is too ambiguous to answer
+- `"insufficient_information"`: Context contains some information but not enough to answer
+
+### Abstention Usage Example
+
+```go
+resp, err := engine.Ask(ctx, req)
+if resp.Abstained {
+    fmt.Printf("System abstained: %s\n", resp.AbstainReason)
+    // Handle abstention case
+}
+```
+
+**Rationale:** Explicit abstention flags are critical for evaluation frameworks to distinguish between:
+
+- "No answer found" (abstained) - correct behavior when content doesn't exist
+- "Answer generated" - may be correct or hallucinated
+
+This enables proper abstention metrics calculation in evaluation frameworks.
 
 ## Rules
 

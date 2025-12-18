@@ -49,6 +49,12 @@ type AskResponse struct {
 	// List of references to source chunks used in the answer
 	References []ReferenceResponse `json:"references"`
 
+	// Abstained indicates whether the system abstained from answering (explicit abstention flag).
+	Abstained bool `json:"abstained,omitempty"`
+
+	// AbstainReason provides the reason for abstention (e.g., "no_relevant_context", "ambiguous_question", "insufficient_information").
+	AbstainReason string `json:"abstain_reason,omitempty"`
+
 	// Debug contains debug information when debug mode is enabled (via ?debug=true query parameter).
 	Debug *DebugInfo `json:"debug,omitempty"`
 }
@@ -273,8 +279,10 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := AskResponse{
-		Answer:     ragResp.Answer,
-		References: references,
+		Answer:        ragResp.Answer,
+		References:    references,
+		Abstained:     ragResp.Abstained,
+		AbstainReason: ragResp.AbstainReason,
 	}
 
 	// Include debug information if present

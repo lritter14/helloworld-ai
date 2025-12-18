@@ -548,8 +548,10 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	if len(deduplicated) == 0 {
 		logger.InfoContext(ctx, "no search results found")
 		return AskResponse{
-			Answer:     "I couldn't find any relevant information in your notes to answer this question.",
-			References: []Reference{},
+			Answer:        "I couldn't find any relevant information in your notes to answer this question.",
+			References:    []Reference{},
+			Abstained:     true,
+			AbstainReason: "no_relevant_context",
 		}, nil
 	}
 
@@ -611,8 +613,10 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	if len(candidates) == 0 {
 		logger.InfoContext(ctx, "no candidates passed vector threshold after rerank preparation")
 		return AskResponse{
-			Answer:     "I couldn't find any relevant information in your notes to answer this question.",
-			References: []Reference{},
+			Answer:        "I couldn't find any relevant information in your notes to answer this question.",
+			References:    []Reference{},
+			Abstained:     true,
+			AbstainReason: "no_relevant_context",
 		}, nil
 	}
 
@@ -646,8 +650,10 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	if len(filteredCandidates) == 0 {
 		logger.InfoContext(ctx, "no candidates met final score threshold")
 		return AskResponse{
-			Answer:     "I couldn't find any relevant information in your notes to answer this question.",
-			References: []Reference{},
+			Answer:        "I couldn't find any relevant information in your notes to answer this question.",
+			References:    []Reference{},
+			Abstained:     true,
+			AbstainReason: "no_relevant_context",
 		}, nil
 	}
 
@@ -823,14 +829,14 @@ func (e *ragEngine) buildDebugInfo(
 	retrievedChunks := make([]RetrievedChunk, 0, len(candidates))
 	for rank, candidate := range candidates {
 		retrievedChunks = append(retrievedChunks, RetrievedChunk{
-			ChunkID:     candidate.result.PointID,
-			RelPath:     candidate.relPath,
-			HeadingPath: candidate.headingPath,
-			ScoreVector: float64(candidate.vectorScore),
+			ChunkID:      candidate.result.PointID,
+			RelPath:      candidate.relPath,
+			HeadingPath:  candidate.headingPath,
+			ScoreVector:  float64(candidate.vectorScore),
 			ScoreLexical: float64(candidate.lexicalScore),
-			ScoreFinal:  float64(candidate.finalScore),
-			Text:        candidate.chunk.Text,
-			Rank:        rank + 1,
+			ScoreFinal:   float64(candidate.finalScore),
+			Text:         candidate.chunk.Text,
+			Rank:         rank + 1,
 		})
 	}
 

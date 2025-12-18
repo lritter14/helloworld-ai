@@ -4,16 +4,16 @@ overview: Create a comprehensive Python-based evaluation framework to measure ch
 todos:
   - id: stable_chunk_ids
     content: Add stable deterministic chunk IDs to Go API (32-char hash). Use byte offsets or text hash + rolling window instead of chunk_index for stability. Include chunk anchor (rel_path + heading_path + line numbers) in debug response.
-    status: pending
+    status: completed
   - id: debug_api_mode
     content: Add debug=true flag to /api/v1/ask endpoint returning top K chunks with rel_path, heading_path, scores, and metadata. Add abstained/abstain_reason fields to response.
-    status: pending
+    status: completed
   - id: eval_metrics_doc
     content: Create EVAL.md documenting core metrics (Recall@K, MRR, Scope Miss Rate, Groundedness, Correctness, Abstention metrics)
-    status: pending
+    status: completed
   - id: eval_set_creation
     content: Create initial frozen eval_set.jsonl with 20-100 questions (include answerable/unanswerable, multi_hop, recency/conflict categories). Freeze dataset version for comparability.
-    status: pending
+    status: completed
   - id: labeling_workflow
     content: "Build labeling workflow script (label_eval.py) for marking gold_supports (anchor-based: rel_path + heading_path)"
     status: pending

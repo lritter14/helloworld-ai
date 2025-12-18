@@ -45,8 +45,11 @@ type AskRequest struct {
 }
 
 type AskResponse struct {
-    Answer     string              `json:"answer"`
-    References []ReferenceResponse `json:"references"`
+    Answer        string              `json:"answer"`
+    References    []ReferenceResponse `json:"references"`
+    Abstained     bool                `json:"abstained,omitempty"`
+    AbstainReason string              `json:"abstain_reason,omitempty"`
+    Debug         *DebugInfo          `json:"debug,omitempty"`
 }
 ```
 
@@ -138,8 +141,11 @@ Document responses using separate response wrapper structs with `swagger:respons
 ```go
 // Response struct (used in code)
 type AskResponse struct {
-    Answer     string              `json:"answer"`
-    References []ReferenceResponse `json:"references"`
+    Answer        string              `json:"answer"`
+    References    []ReferenceResponse `json:"references"`
+    Abstained     bool                `json:"abstained,omitempty"`
+    AbstainReason string              `json:"abstain_reason,omitempty"`
+    Debug         *DebugInfo          `json:"debug,omitempty"`
 }
 
 // Response documentation (for Swagger)
@@ -245,6 +251,7 @@ func (h *IndexHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 ```
 
 **Behavior:**
+
 - Runs indexing asynchronously in a goroutine
 - Returns HTTP 202 Accepted immediately
 - Supports `?force=true` query parameter to clear existing data first
@@ -306,23 +313,35 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 ```
 
 **Error Mapping:**
+
 - HTTP 400: Validation errors (empty question, invalid vaults, K > 20)
 - HTTP 500: RAG engine errors
 - HTTP 502: LLM/embedding errors
 - HTTP 503: Vector store errors
 
 **Validation:**
+
 - Question required (non-empty)
 - K defaults to 5 if zero, max 20
 - Vault names validated against vaultRepo
 
 **Debug Mode:**
+
 - Enable via `?debug=true` or `?debug=1` query parameter
 - When enabled, response includes detailed retrieval information:
+
   - All retrieved chunks with scores (vector, lexical, final) and ranks
   - Folder selection information (selected and available folders)
   - Chunk metadata (ID, rel_path, heading_path, text)
+
 - Useful for evaluation frameworks and debugging retrieval quality
+
+**Abstention:**
+
+- `abstained` field indicates when the system explicitly abstains from answering
+- `abstain_reason` provides the reason (e.g., "no_relevant_context", "ambiguous_question", "insufficient_information")
+- Set to `true` when no relevant chunks are found or when retrieval fails
+- Critical for evaluation frameworks to distinguish between "no answer found" and "answer generated"
 
 ## Rules
 

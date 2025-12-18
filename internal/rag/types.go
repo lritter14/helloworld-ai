@@ -34,6 +34,10 @@ type AskResponse struct {
 	Answer string `json:"answer"`
 	// References are the chunks that were used to generate the answer.
 	References []Reference `json:"references"`
+	// Abstained indicates whether the system abstained from answering (explicit abstention flag).
+	Abstained bool `json:"abstained,omitempty"`
+	// AbstainReason provides the reason for abstention (e.g., "no_relevant_context", "ambiguous_question", "insufficient_information").
+	AbstainReason string `json:"abstain_reason,omitempty"`
 	// Debug contains debug information when debug mode is enabled.
 	Debug *DebugInfo `json:"debug,omitempty"`
 }
