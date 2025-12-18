@@ -14,11 +14,14 @@ todos:
   - id: eval_set_creation
     content: Create initial frozen eval_set.jsonl with 20-100 questions (include answerable/unanswerable, multi_hop, recency/conflict categories). Freeze dataset version for comparability.
     status: completed
+  - id: results_storage
+    content: Design results storage format (JSONL per run + metrics JSON) with latency breakdown, cost tracking, judge input storage. Default to truncated chunk text (200 chars), full text only with --store-full-text flag.
+    status: completed
   - id: labeling_workflow
     content: "Build labeling workflow script (label_eval.py) for marking gold_supports (anchor-based: rel_path + heading_path)"
-    status: pending
+    status: completed
   - id: python_runner
-    content: Write Python eval runner (run_eval.py) with folder_mode options, latency tracking, cost tracking, retrieval-only mode (--retrieval-only flag), operational metrics (error rate, coverage by doc type)
+    content: Write Python eval runner (run_eval.py) with folder_mode options, latency tracking, cost tracking, retrieval-only mode (--retrieval-only flag), operational metrics (error rate, coverage by doc type), and indexing coverage stats capture (docs processed, chunks skipped, token distribution)
     status: pending
   - id: retrieval_metrics
     content: Implement retrieval metrics calculator (score_retrieval.py) for Recall@K (any + all for multi-hop), MRR, Precision@K, Scope Miss Rate, and Attribution Hit Rate (anchor-based matching with prefix match rules, multi-hop support groups, recency/conflict rules)
@@ -29,17 +32,11 @@ todos:
   - id: abstention_metrics
     content: Implement abstention metrics calculator (score_abstention.py) for answerable=false questions
     status: pending
-  - id: run_comparison
-    content: Create run comparison tool (compare_runs.py) with eval configuration invariants checking
-    status: pending
-  - id: results_storage
-    content: Design results storage format (JSONL per run + metrics JSON) with latency breakdown, cost tracking, judge input storage. Default to truncated chunk text (200 chars), full text only with --store-full-text flag.
-    status: pending
   - id: git_strategy
     content: Set up gitignore for results.jsonl (commit only metrics.json) or implement text redaction
     status: pending
-  - id: indexing_coverage_stats
-    content: Add indexing coverage stats capture (docs processed, chunks skipped, token distribution) to make eval sensitive to indexing changes
+  - id: run_comparison
+    content: Create run comparison tool (compare_runs.py) with eval configuration invariants checking
     status: pending
   - id: regression_gate
     content: Implement regression gate (fail if Recall@K/scope_miss_rate/groundedness drop below thresholds, configurable)

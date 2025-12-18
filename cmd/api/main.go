@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	nethttp "net/http"
 	"os"
+	"path/filepath"
+	"time"
 
 	"helloworld-ai/internal/config"
 	"helloworld-ai/internal/http"
@@ -106,34 +108,89 @@ func main() {
 	// This ensures models are available before we try to use them
 	modelLoader := llm.NewModelLoader(cfg.LLMBaseURL)
 
+	// Get absolute path to models directory (relative to project root)
+	// This helps avoid relative path resolution issues when llama.cpp spawns subprocesses
+	wd, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("Failed to get working directory: %v", err)
+	}
+	modelsDir := filepath.Join(wd, "..", "llama.cpp", "models")
+	absModelsDir, err := filepath.Abs(modelsDir)
+	if err != nil {
+		slog.Warn("Failed to resolve absolute models directory, using relative path",
+			"models_dir", modelsDir,
+			"error", err)
+		absModelsDir = modelsDir
+	}
+
 	// Load chat model
+	chatModelPath := filepath.Join(absModelsDir, cfg.LLMModelName+".gguf")
 	chatModelArgs := []string{
 		"--ctx-size", "8192",
 		"--threads", "8",
 		"--batch-size", "384",
 		"--ubatch-size", "96",
+		"--model", chatModelPath, // Use absolute path to avoid relative path resolution issues
 	}
-	if err := modelLoader.LoadModel(ctx, cfg.LLMModelName, chatModelArgs); err != nil {
-		slog.Warn("Failed to load chat model (will be loaded on first use)",
+	// Check if already loaded before attempting to load
+	chatLoaded, err := modelLoader.IsModelLoaded(ctx, cfg.LLMModelName)
+	if err != nil {
+		slog.Warn("Failed to check if chat model is loaded, attempting to load",
 			"model", cfg.LLMModelName,
 			"error", err)
+		// Attempt to load even if check failed
+		if err := modelLoader.LoadModel(ctx, cfg.LLMModelName, chatModelArgs); err != nil {
+			slog.Warn("Failed to load chat model (will be loaded on first use)",
+				"model", cfg.LLMModelName,
+				"error", err)
+		} else {
+			slog.Info("Chat model loaded", "model", cfg.LLMModelName)
+		}
+		// Wait 10 seconds before loading next model (after any load attempt)
+		slog.Info("Waiting 10 seconds before loading next model...")
+		time.Sleep(10 * time.Second)
+	} else if chatLoaded {
+		slog.Info("Chat model already loaded", "model", cfg.LLMModelName)
+		// No delay needed if already loaded
 	} else {
-		slog.Info("Chat model loaded", "model", cfg.LLMModelName)
+		// Model not loaded, attempt to load it
+		if err := modelLoader.LoadModel(ctx, cfg.LLMModelName, chatModelArgs); err != nil {
+			slog.Warn("Failed to load chat model (will be loaded on first use)",
+				"model", cfg.LLMModelName,
+				"error", err)
+		} else {
+			slog.Info("Chat model loaded", "model", cfg.LLMModelName)
+		}
+		// Wait 10 seconds before loading next model (after any load attempt)
+		slog.Info("Waiting 10 seconds before loading next model...")
+		time.Sleep(10 * time.Second)
 	}
 
 	// Load embeddings model
+	embeddingModelPath := filepath.Join(absModelsDir, cfg.EmbeddingModelName+".gguf")
 	embeddingModelArgs := []string{
 		"--embeddings",
 		"--pooling", "mean",
 		"--ctx-size", "2048",
 		"--ubatch-size", "2048",
+		"--model", embeddingModelPath, // Use absolute path to avoid relative path resolution issues
 	}
-	if err := modelLoader.LoadModel(ctx, cfg.EmbeddingModelName, embeddingModelArgs); err != nil {
-		slog.Warn("Failed to load embedding model (will be loaded on first use)",
+	// Check if already loaded before attempting to load
+	embeddingLoaded, err := modelLoader.IsModelLoaded(ctx, cfg.EmbeddingModelName)
+	if err != nil {
+		slog.Warn("Failed to check if embedding model is loaded, attempting to load",
 			"model", cfg.EmbeddingModelName,
 			"error", err)
+	} else if embeddingLoaded {
+		slog.Info("Embedding model already loaded", "model", cfg.EmbeddingModelName)
 	} else {
-		slog.Info("Embedding model loaded", "model", cfg.EmbeddingModelName)
+		if err := modelLoader.LoadModel(ctx, cfg.EmbeddingModelName, embeddingModelArgs); err != nil {
+			slog.Warn("Failed to load embedding model (will be loaded on first use)",
+				"model", cfg.EmbeddingModelName,
+				"error", err)
+		} else {
+			slog.Info("Embedding model loaded", "model", cfg.EmbeddingModelName)
+		}
 	}
 
 	// Validate embedding client vector size (fail-fast)

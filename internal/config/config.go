@@ -57,7 +57,7 @@ func Load() (*Config, error) {
 	}
 
 	// Single server for both chat and embeddings (router mode)
-	llmBaseURL := getEnv("LLM_BASE_URL", "http://localhost:8081")
+	llmBaseURL := getEnv("LLM_BASE_URL", "http://127.0.0.1:8081")
 	// Model name must match the filename (without .gguf extension) for router mode
 	// Example: If file is "Qwen2.5-3B-Instruct-Q4_K_M.gguf", use "Qwen2.5-3B-Instruct-Q4_K_M"
 	llmModelName := getEnv("LLM_MODEL", "Qwen2.5-3B-Instruct-Q4_K_M")
@@ -90,7 +90,7 @@ func Load() (*Config, error) {
 		LLMAPIKey:    getEnv("LLM_API_KEY", "dummy-key"),
 		// Single server for both chat and embeddings (router mode)
 		// Embeddings use the same base URL as chat, model is selected at runtime
-		EmbeddingBaseURL: getEnv("EMBEDDING_BASE_URL", "http://localhost:8081"), // Default to same server as chat
+		EmbeddingBaseURL: getEnv("EMBEDDING_BASE_URL", "http://127.0.0.1:8081"), // Default to same server as chat
 		// Model name must match the filename (without .gguf extension) for router mode
 		// Example: If file is "ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0.gguf", use "ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0"
 		EmbeddingModelName: getEnv("EMBEDDING_MODEL_NAME", "ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0"),
@@ -99,7 +99,7 @@ func Load() (*Config, error) {
 		DBPath:            getEnv("DB_PATH", "./data/helloworld-ai.db"),
 		VaultPersonalPath: getEnv("VAULT_PERSONAL_PATH", ""),
 		VaultWorkPath:     getEnv("VAULT_WORK_PATH", ""),
-		QdrantURL:         getEnv("QDRANT_URL", "http://localhost:6333"),
+		QdrantURL:         getEnv("QDRANT_URL", "http://127.0.0.1:6333"),
 		QdrantCollection:  getEnv("QDRANT_COLLECTION", "notes"),
 		APIPort:           getEnv("API_PORT", "9000"),
 		LogLevel:          logLevel,

@@ -113,12 +113,12 @@ The project automatically loads configuration from a `.env` file in the project 
 API_PORT=9000
 
 # LLM Configuration (Chat Completions)
-LLM_BASE_URL=http://localhost:8081
+LLM_BASE_URL=http://127.0.0.1:8081
 LLM_API_KEY=dummy-key
 LLM_MODEL=Llama-3.1-8B-Instruct
 
 # Embeddings Configuration
-EMBEDDING_BASE_URL=http://localhost:8082
+EMBEDDING_BASE_URL=http://127.0.0.1:8081
 EMBEDDING_MODEL_NAME=granite-embedding-278m-multilingual
 
 # Qdrant Configuration
@@ -137,32 +137,113 @@ A `.env` file with default values is included in the repository. Modify it accor
 
 ### Option 1: Using Tilt (Recommended for Development)
 
-Tilt manages all services and dependencies automatically. It reads configuration from the `.env` file:
+**Important:** Before starting Tilt, you must start the llama.cpp server manually in a separate terminal session. See [Starting llama.cpp Server](#starting-llamacpp-server) below.
+
+Tilt manages Qdrant, the API server, and Swagger UI. It reads configuration from the `.env` file:
 
 ```bash
+# In terminal 1: Start llama.cpp server (required before Tilt)
+make start-llama
+
+# In terminal 2: Start Tilt
 tilt up
+# or
+make start
 ```
 
-This will:
+This will start:
 
-- Start llama.cpp chat server (port 8081) for chat completions
-- Start llama.cpp embeddings server (port 8082) for embeddings generation
-- Start Qdrant (port 6333)
-- Start API server (port 9000) - serves both API and web UI
-- Start Swagger UI (port 8082) - interactive API documentation
+- Qdrant (vector database) on port 6333
+- API server on port 9000 - serves both API and web UI
+- Swagger UI on port 8083 - interactive API documentation
 - Watch for file changes and auto-reload
 - Provide a web UI at `http://localhost:10350` to view logs and status
 
 Access the application at `http://localhost:9000`
-Access API documentation at `http://localhost:8082/docs`
+Access API documentation at `http://localhost:8083/docs`
 
 To stop all services:
 
 ```bash
 tilt down
+# or
+make stop
 ```
 
-### Option 2: Using Make
+**Note:** The llama.cpp server must be stopped separately (Ctrl+C in the terminal where it's running).
+
+### Starting llama.cpp Server
+
+The llama.cpp server must be started manually before running the API server (whether using Tilt or running directly). This is because llama.cpp requires direct hardware access and is typically built for the host architecture.
+
+**Prerequisites:**
+
+1. Build llama.cpp (if not already built):
+   ```bash
+   cd /path/to/llama.cpp
+   make
+   ```
+
+2. Download models (see [Model Downloads](#model-downloads) section):
+   ```bash
+   make download-models
+   ```
+
+**Start llama.cpp Server in Router Mode:**
+
+The project uses llama.cpp in router mode, which allows a single server to handle both chat and embeddings models. Start the server with:
+
+```bash
+# Set the path to your llama-server binary
+LLAMA_SERVER=/opt/homebrew/bin/llama-server  # or /path/to/llama.cpp/build/bin/llama-server
+
+# Set the path to your models directory (use absolute path)
+MODELS_DIR=$(realpath ../llama.cpp/models)
+
+# Start server in router mode
+LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS=true $LLAMA_SERVER \
+  --models-dir "$MODELS_DIR" \
+  --port 8081 \
+  --host 127.0.0.1 \
+  --models-max 4 \
+  --embeddings
+
+
+LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS=true /Users/loganritter/projects/llama.cpp/build/bin/llama-server \
+  --models-dir "/Users/loganritter/projects/llama.cpp/models" \
+  --port 8081 \
+  --host 127.0.0.1 \
+  --models-max 4 \
+  --embeddings
+```
+
+
+
+
+Or use the Makefile target:
+
+```bash
+make start-llama
+```
+
+**Important Configuration:**
+
+- `--host 127.0.0.1` - For local development (use `0.0.0.0` for Docker container access)
+- `--port 8081` - Port must match `LLM_BASE_URL` in your `.env` file
+- `--models-dir` - **Use absolute path** to avoid relative path resolution issues when llama.cpp spawns subprocesses
+- `--embeddings` - Enables embeddings endpoint
+- `--models-max 4` - Maximum number of models to keep loaded in memory
+- `LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS=true` - Allows model-specific parameters via `/models/load` endpoint
+
+**Verify llama.cpp is Running:**
+
+```bash
+curl http://127.0.0.1:8081/models
+```
+
+You should see a JSON response listing available models.
+
+### Option 2: Using Make (Without Tilt)
 
 #### 1. Start llama.cpp server
 
@@ -245,13 +326,13 @@ When running the API server directly (not via Tilt), you can set these environme
 
 **Optional (with defaults):**
 
-- `LLM_BASE_URL` - Base URL for llama.cpp chat server (default: `http://localhost:8081`)
+- `LLM_BASE_URL` - Base URL for llama.cpp chat server (default: `http://127.0.0.1:8081`)
 - `LLM_API_KEY` - API key for llama.cpp (default: `dummy-key`)
 - `LLM_MODEL` - Model name for chat completions (default: `Llama-3.1-8B-Instruct`)
-- `EMBEDDING_BASE_URL` - Base URL for embeddings API (default: `http://localhost:8081`)
+- `EMBEDDING_BASE_URL` - Base URL for embeddings API (default: `http://127.0.0.1:8081`)
 - `EMBEDDING_MODEL_NAME` - Model name for embeddings (default: `granite-embedding-278m-multilingual`)
 - `DB_PATH` - Path to SQLite database (default: `./data/helloworld-ai.db`)
-- `QDRANT_URL` - Qdrant server URL (default: `http://localhost:6333`)
+- `QDRANT_URL` - Qdrant server URL (default: `http://127.0.0.1:6333`)
 - `QDRANT_COLLECTION` - Qdrant collection name (default: `notes`)
 - `API_PORT` - Port for API server (default: `9000`)
 
@@ -399,10 +480,10 @@ scp bin/helloworld-ai-api user@server:~/helloworld-ai/
 VAULT_PERSONAL_PATH=/path/to/personal \
 VAULT_WORK_PATH=/path/to/work \
 QDRANT_VECTOR_SIZE=1024 \
-LLM_BASE_URL=http://localhost:8081 \
+LLM_BASE_URL=http://127.0.0.1:8081 \
 LLM_API_KEY=dummy-key \
 LLM_MODEL=Llama-3.1-8B-Instruct \
-EMBEDDING_BASE_URL=http://localhost:8082 \
+EMBEDDING_BASE_URL=http://127.0.0.1:8081 \
 EMBEDDING_MODEL_NAME=granite-embedding-278m-multilingual \
 API_PORT=9000 \
 ./helloworld-ai-api
@@ -478,7 +559,7 @@ EMBEDDING_BASE_URL=http://host.docker.internal:8081
 
 ```bash
 # Check if server is responding
-curl http://localhost:8081/models
+curl http://127.0.0.1:8081/models
 
 # Check from inside a Docker container
 docker exec helloworld-ai-api curl http://host.docker.internal:8081/models

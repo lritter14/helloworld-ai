@@ -10,12 +10,13 @@ API_PORT ?= 9000
 
 help:
 	@echo "Available targets:"
-	@echo "  start/run     - Start all services using Tilt (llama-server, API)"
+	@echo "  start/run     - Start services using Tilt (Qdrant, API, Swagger UI)"
+	@echo "                 NOTE: llama.cpp server must be started separately with 'make start-llama'"
 	@echo "  stop          - Stop all services using Tilt"
-	@echo "  tilt-up       - Start all services using Tilt"
+	@echo "  tilt-up       - Start services using Tilt (Qdrant, API, Swagger UI)"
 	@echo "  tilt-down     - Stop all services using Tilt"
 	@echo "  tilt-restart  - Restart all services using Tilt"
-	@echo "  start-llama   - Start llama.cpp server only (port $(LLAMA_PORT))"
+	@echo "  start-llama   - Start llama.cpp server only (port $(LLAMA_PORT)) - REQUIRED before 'make start'"
 	@echo "  run-api       - Run the API server only (without Tilt)"
 	@echo "  download-models - Download required AI models to ../llama.cpp/models/"
 	@echo "  lint          - Run Go linter"
@@ -205,15 +206,15 @@ test-rag:
 	fi
 
 reindex:
-	@echo "Calling re-index API at http://localhost:$(API_PORT)/api/index"
-	@curl -X POST http://localhost:$(API_PORT)/api/index \
+	@echo "Calling re-index API at http://127.0.0.1:$(API_PORT)/api/index"
+	@curl -X POST http://127.0.0.1:$(API_PORT)/api/index \
 		-H "Content-Type: application/json" \
 		-s | jq '.' || echo "Indexing started. Check server logs for progress."
 
 force-reindex:
 	@echo "Force reindexing: clearing all existing data and rebuilding..."
-	@echo "Calling force re-index API at http://localhost:$(API_PORT)/api/index?force=true"
-	@curl -X POST "http://localhost:$(API_PORT)/api/index?force=true" \
+	@echo "Calling force re-index API at http://127.0.0.1:$(API_PORT)/api/index?force=true"
+	@curl -X POST "http://127.0.0.1:$(API_PORT)/api/index?force=true" \
 		-H "Content-Type: application/json" \
 		-s | jq '.' || echo "Force re-indexing started. Check server logs for progress."
 

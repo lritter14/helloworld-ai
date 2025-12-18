@@ -97,6 +97,7 @@ func TestBuildDebugInfo(t *testing.T) {
 		orderedFolders,
 		availableFolders,
 		vaultIDToNameMap,
+		50, // maxDebugChunks
 	)
 
 	// Verify debug info structure
@@ -188,6 +189,7 @@ func TestBuildDebugInfo_EmptyCandidates(t *testing.T) {
 		[]string{},
 		[]string{},
 		map[int]string{},
+		50, // maxDebugChunks
 	)
 
 	if debugInfo == nil {
@@ -227,6 +229,7 @@ func TestBuildDebugInfo_FolderConversion(t *testing.T) {
 		orderedFolders,
 		availableFolders,
 		vaultIDToNameMap,
+		50, // maxDebugChunks
 	)
 
 	if debugInfo == nil || debugInfo.FolderSelection == nil {

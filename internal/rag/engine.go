@@ -547,12 +547,22 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	if len(deduplicated) == 0 {
 		logger.InfoContext(ctx, "no search results found")
-		return AskResponse{
+		resp := AskResponse{
 			Answer:        "I couldn't find any relevant information in your notes to answer this question.",
 			References:    []Reference{},
 			Abstained:     true,
 			AbstainReason: "no_relevant_context",
-		}, nil
+		}
+		// Build debug info even when no results, if requested
+		if req.Debug {
+			maxDebugChunks := targetK * 2
+			if maxDebugChunks > 50 {
+				maxDebugChunks = 50
+			}
+			debugInfo := e.buildDebugInfo(ctx, deduplicated, []rerankCandidate{}, []rerankCandidate{}, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks)
+			resp.Debug = debugInfo
+		}
+		return resp, nil
 	}
 
 	if len(deduplicated) > maxCandidates {
@@ -612,12 +622,23 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	if len(candidates) == 0 {
 		logger.InfoContext(ctx, "no candidates passed vector threshold after rerank preparation")
-		return AskResponse{
+		resp := AskResponse{
 			Answer:        "I couldn't find any relevant information in your notes to answer this question.",
 			References:    []Reference{},
 			Abstained:     true,
 			AbstainReason: "no_relevant_context",
-		}, nil
+		}
+		// Build debug info even when no candidates, if requested
+		// This shows what was retrieved from vector store even if chunks couldn't be fetched from DB
+		if req.Debug {
+			maxDebugChunks := targetK * 2
+			if maxDebugChunks > 50 {
+				maxDebugChunks = 50
+			}
+			debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, []rerankCandidate{}, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks)
+			resp.Debug = debugInfo
+		}
+		return resp, nil
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
@@ -649,12 +670,23 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	if len(filteredCandidates) == 0 {
 		logger.InfoContext(ctx, "no candidates met final score threshold")
-		return AskResponse{
+		resp := AskResponse{
 			Answer:        "I couldn't find any relevant information in your notes to answer this question.",
 			References:    []Reference{},
 			Abstained:     true,
 			AbstainReason: "no_relevant_context",
-		}, nil
+		}
+		// Build debug info even when no candidates passed threshold, if requested
+		// This shows what was retrieved and scored even if it didn't meet the threshold
+		if req.Debug {
+			maxDebugChunks := targetK * 2
+			if maxDebugChunks > 50 {
+				maxDebugChunks = 50
+			}
+			debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, []rerankCandidate{}, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks)
+			resp.Debug = debugInfo
+		}
+		return resp, nil
 	}
 
 	// Determine final chunk count respecting rerank cap
@@ -806,7 +838,11 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	// Collect debug information if requested
 	if req.Debug {
-		debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, selectedCandidates, orderedFolders, availableFolders, vaultIDToNameMap)
+		maxDebugChunks := targetK * 2
+		if maxDebugChunks > 50 {
+			maxDebugChunks = 50
+		}
+		debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, selectedCandidates, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks)
 		resp.Debug = debugInfo
 	}
 
@@ -822,22 +858,71 @@ func (e *ragEngine) buildDebugInfo(
 	orderedFolders []string,
 	availableFolders []string,
 	vaultIDToNameMap map[int]string,
+	maxDebugChunks int,
 ) *DebugInfo {
 	logger := contextutil.LoggerFromContext(ctx)
 
+	// Limit debug chunks to a reasonable number for labeling/evaluation
+	// Default to 50 if not specified, or use 2x the requested K
+	if maxDebugChunks <= 0 {
+		maxDebugChunks = 50
+	}
+
 	// Build retrieved chunks list from all candidates (before final selection)
-	retrievedChunks := make([]RetrievedChunk, 0, len(candidates))
-	for rank, candidate := range candidates {
-		retrievedChunks = append(retrievedChunks, RetrievedChunk{
-			ChunkID:      candidate.result.PointID,
-			RelPath:      candidate.relPath,
-			HeadingPath:  candidate.headingPath,
-			ScoreVector:  float64(candidate.vectorScore),
-			ScoreLexical: float64(candidate.lexicalScore),
-			ScoreFinal:   float64(candidate.finalScore),
-			Text:         candidate.chunk.Text,
-			Rank:         rank + 1,
-		})
+	// If candidates is empty (e.g., chunks couldn't be fetched from DB), fall back to deduplicated results
+	retrievedChunks := make([]RetrievedChunk, 0)
+	if len(candidates) > 0 {
+		// Use candidates (has full info including text and lexical scores)
+		// Limit to maxDebugChunks for labeling workflow
+		limit := len(candidates)
+		if limit > maxDebugChunks {
+			limit = maxDebugChunks
+		}
+		for rank := 0; rank < limit; rank++ {
+			candidate := candidates[rank]
+			retrievedChunks = append(retrievedChunks, RetrievedChunk{
+				ChunkID:      candidate.result.PointID,
+				RelPath:      candidate.relPath,
+				HeadingPath:  candidate.headingPath,
+				ScoreVector:  float64(candidate.vectorScore),
+				ScoreLexical: float64(candidate.lexicalScore),
+				ScoreFinal:   float64(candidate.finalScore),
+				Text:         candidate.chunk.Text,
+				Rank:         rank + 1,
+			})
+		}
+		if len(candidates) > maxDebugChunks {
+			logger.DebugContext(ctx, "debug chunks limited for labeling workflow",
+				"total_candidates", len(candidates),
+				"shown_chunks", maxDebugChunks)
+		}
+	} else if len(deduplicated) > 0 {
+		// Fall back to deduplicated results (from vector search, but chunks not fetched from DB)
+		// This helps debug when chunks exist in Qdrant but not in SQLite
+		// Limit to maxDebugChunks for labeling workflow
+		limit := len(deduplicated)
+		if limit > maxDebugChunks {
+			limit = maxDebugChunks
+		}
+		for rank := 0; rank < limit; rank++ {
+			result := deduplicated[rank]
+			relPath, _ := result.Meta["rel_path"].(string)
+			headingPath, _ := result.Meta["heading_path"].(string)
+			
+			retrievedChunks = append(retrievedChunks, RetrievedChunk{
+				ChunkID:      result.PointID,
+				RelPath:      relPath,
+				HeadingPath:  headingPath,
+				ScoreVector:  float64(result.Score),
+				ScoreLexical: 0, // Not computed yet (requires chunk text)
+				ScoreFinal:   float64(result.Score), // Use vector score as final when no lexical score
+				Text:         "", // Not available (chunk not fetched from DB)
+				Rank:         rank + 1,
+			})
+		}
+		logger.DebugContext(ctx, "debug info built from deduplicated results (chunks not fetched from DB)",
+			"total_results", len(deduplicated),
+			"shown_chunks", len(retrievedChunks))
 	}
 
 	// Convert folder format from "vaultID/folder" to "vaultName/folder" for display

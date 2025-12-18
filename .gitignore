@@ -54,3 +54,16 @@ frontend-react/dist/
 frontend-react/.env
 frontend-react/.env.local
 
+
+
+__pycache__/
+*.pyc
+
+# Python virtual environments
+venv/
+.venv/
+env/
+.env/
+*.egg-info/
+dist/
+build/
