@@ -2,7 +2,7 @@
 
 # llama.cpp server configuration
 LLAMA_SERVER ?= ../llama.cpp/build/bin/llama-server
-LLAMA_MODEL ?= ../llama.cpp/models/llama-3-8b-instruct-q4_k_m.gguf
+LLAMA_MODELS_DIR ?= ../llama.cpp/models
 LLAMA_PORT ?= 8081
 
 # API port
@@ -54,14 +54,8 @@ start-llama:
 		echo "Please build llama.cpp first: cd ../llama.cpp && make"; \
 		exit 1; \
 	fi
-	@if [ ! -f "$(LLAMA_MODEL)" ]; then \
-		echo "Warning: Model file not found at $(LLAMA_MODEL)"; \
-		echo "Starting server with Hugging Face model download..."; \
-		$(LLAMA_SERVER) -hf ggml-org/llama-3-8b-instruct-GGUF --port $(LLAMA_PORT); \
-	else \
-		echo "Starting llama.cpp server on port $(LLAMA_PORT) with model $(LLAMA_MODEL)"; \
-		$(LLAMA_SERVER) -m $(LLAMA_MODEL) --port $(LLAMA_PORT); \
-	fi
+	@echo "Starting llama.cpp server on port $(LLAMA_PORT) with models directory $(LLAMA_MODELS_DIR)"; \
+	LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS=true $(LLAMA_SERVER) --models-dir $(LLAMA_MODELS_DIR) --port $(LLAMA_PORT) --host 127.0.0.1 --models-max 4 --embeddings; \
 
 run-api:
 	@go run ./cmd/api

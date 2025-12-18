@@ -71,9 +71,9 @@ local_resource(
         "**/web/**",
     ],
     readiness_probe=probe(
-        exec=exec_action(["curl", "-f", "http://127.0.0.1:%d/" % api_port]),
-        initial_delay_secs=5,
-        timeout_secs=2,
+        exec=exec_action(["curl", "-f", "http://127.0.0.1:%d/api/health" % api_port]),
+        initial_delay_secs=10,
+        timeout_secs=3,
         period_secs=3,
     ),
 )
