@@ -123,13 +123,13 @@ func TestLoad(t *testing.T) {
 			},
 			wantErr: false,
 			checkConfig: func(cfg *Config) bool {
-				return cfg.LLMBaseURL == "http://localhost:8081" &&
+				return cfg.LLMBaseURL == "http://127.0.0.1:8081" &&
 					cfg.LLMModelName == "Qwen2.5-3B-Instruct-Q4_K_M" &&
 					cfg.LLMAPIKey == "dummy-key" &&
-					cfg.EmbeddingBaseURL == "http://localhost:8081" &&
+					cfg.EmbeddingBaseURL == "http://127.0.0.1:8081" &&
 					cfg.EmbeddingModelName == "ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0" &&
 					cfg.DBPath == "./data/helloworld-ai.db" &&
-					cfg.QdrantURL == "http://localhost:6333" &&
+					cfg.QdrantURL == "http://127.0.0.1:6333" &&
 					cfg.QdrantCollection == "notes" &&
 					cfg.APIPort == "9000" &&
 					cfg.LogLevel == slog.LevelInfo &&
@@ -169,7 +169,7 @@ func TestLoad(t *testing.T) {
 				// Embeddings should have their own defaults, not inherit from LLM
 				return cfg.LLMBaseURL == "http://custom:9090" &&
 					cfg.LLMModelName == "custom-model" &&
-					cfg.EmbeddingBaseURL == "http://localhost:8081" &&
+					cfg.EmbeddingBaseURL == "http://127.0.0.1:8081" &&
 					cfg.EmbeddingModelName == "ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0"
 			},
 		},
