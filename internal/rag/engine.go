@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"helloworld-ai/internal/contextutil"
 	"helloworld-ai/internal/llm"
@@ -345,6 +346,9 @@ Your response (JSON array only):`, question, folderList)
 func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error) {
 	logger := contextutil.LoggerFromContext(ctx)
 
+	// Track total time for the entire RAG query
+	startTime := time.Now()
+
 	logger.InfoContext(ctx, "RAG query started",
 		"question", req.Question,
 		"vaults", req.Vaults,
@@ -425,8 +429,11 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		vaultIDToNameMap[vault.ID] = vault.Name
 	}
 
+	// Track folder selection time
+	folderSelectionStart := time.Now()
 	// Select relevant folders using LLM
 	orderedFolders := e.selectRelevantFolders(ctx, req.Question, availableFolders, req.Folders, vaultIDs, vaultIDToNameMap)
+	folderSelectionMs := time.Since(folderSelectionStart).Milliseconds()
 
 	logger.InfoContext(ctx, "folder selection completed",
 		"available_folders", len(availableFolders),
@@ -437,6 +444,9 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		"ordered_folders", orderedFolders,
 		"available_folders", availableFolders,
 	)
+
+	// Track retrieval time (vector search + reranking)
+	retrievalStart := time.Now()
 
 	// Search vector store - search each vault and folder separately
 	var allSearchResults []vectorstore.SearchResult
@@ -559,7 +569,11 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 			if maxDebugChunks > 50 {
 				maxDebugChunks = 50
 			}
-			debugInfo := e.buildDebugInfo(ctx, deduplicated, []rerankCandidate{}, []rerankCandidate{}, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks)
+			// Retrieval completed but found no results, so calculate retrieval time
+			retrievalMs := time.Since(retrievalStart).Milliseconds()
+			generationMs := int64(0)
+			totalMs := time.Since(startTime).Milliseconds()
+			debugInfo := e.buildDebugInfo(ctx, deduplicated, []rerankCandidate{}, []rerankCandidate{}, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks, folderSelectionMs, retrievalMs, generationMs, totalMs)
 			resp.Debug = debugInfo
 		}
 		return resp, nil
@@ -586,25 +600,52 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		}
 
 		chunk, err := e.chunkRepo.GetByID(ctx, result.PointID)
-		if err != nil {
-			logger.WarnContext(ctx, "failed to fetch chunk text during rerank", "chunk_id", result.PointID, "error", err)
-			continue
-		}
-
 		vaultName, _ := result.Meta["vault_name"].(string)
 		relPath, _ := result.Meta["rel_path"].(string)
-		headingPath := chunk.HeadingPath
-		if headingPath == "" {
-			headingPath, _ = result.Meta["heading_path"].(string)
-		}
-		chunkIndex := chunk.ChunkIndex
-		if chunkIndex == 0 {
+		headingPathMeta, _ := result.Meta["heading_path"].(string)
+		
+		var headingPath string
+		var chunkText string
+		var chunkIndex int
+		
+		if err != nil {
+			// Chunk not found in SQLite - use metadata from Qdrant
+			// This handles data consistency issues where chunks exist in Qdrant but not SQLite
+			logger.WarnContext(ctx, "chunk not found in SQLite, using Qdrant metadata",
+				"chunk_id", result.PointID,
+				"rel_path", relPath,
+				"error", err)
+			
+			headingPath = headingPathMeta
+			chunkText = "" // Text not available from Qdrant metadata
 			if chunkIndexFloat, ok := result.Meta["chunk_index"].(float64); ok {
 				chunkIndex = int(chunkIndexFloat)
 			}
+			
+			// Create a minimal chunk record for reranking
+			// Use empty text - lexical score will be 0, but we can still use vector score
+			chunk = &storage.ChunkRecord{
+				ID:          result.PointID,
+				HeadingPath: headingPath,
+				Text:        chunkText,
+				ChunkIndex:  chunkIndex,
+			}
+		} else {
+			// Chunk found in SQLite - use it
+			headingPath = chunk.HeadingPath
+			if headingPath == "" {
+				headingPath = headingPathMeta
+			}
+			chunkText = chunk.Text
+			chunkIndex = chunk.ChunkIndex
+			if chunkIndex == 0 {
+				if chunkIndexFloat, ok := result.Meta["chunk_index"].(float64); ok {
+					chunkIndex = int(chunkIndexFloat)
+				}
+			}
 		}
 
-		lexScore := lexicalScore(req.Question, chunk.Text, headingPath)
+		lexScore := lexicalScore(req.Question, chunkText, headingPath)
 		finalScore := combineScores(vectorScore, lexScore)
 		candidates = append(candidates, rerankCandidate{
 			result:       result,
@@ -635,7 +676,11 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 			if maxDebugChunks > 50 {
 				maxDebugChunks = 50
 			}
-			debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, []rerankCandidate{}, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks)
+			// Retrieval completed but no generation happened
+			retrievalMs := time.Since(retrievalStart).Milliseconds()
+			generationMs := int64(0)
+			totalMs := time.Since(startTime).Milliseconds()
+			debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, []rerankCandidate{}, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks, folderSelectionMs, retrievalMs, generationMs, totalMs)
 			resp.Debug = debugInfo
 		}
 		return resp, nil
@@ -683,7 +728,11 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 			if maxDebugChunks > 50 {
 				maxDebugChunks = 50
 			}
-			debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, []rerankCandidate{}, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks)
+			// Retrieval completed but no generation happened
+			retrievalMs := time.Since(retrievalStart).Milliseconds()
+			generationMs := int64(0)
+			totalMs := time.Since(startTime).Milliseconds()
+			debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, []rerankCandidate{}, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks, folderSelectionMs, retrievalMs, generationMs, totalMs)
 			resp.Debug = debugInfo
 		}
 		return resp, nil
@@ -780,6 +829,12 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	)
 	logger.DebugContext(ctx, "full context being sent to LLM", "context", contextString)
 
+	// Retrieval phase complete (vector search + reranking)
+	retrievalMs := time.Since(retrievalStart).Milliseconds()
+
+	// Track generation time (LLM call)
+	generationStart := time.Now()
+
 	// Construct LLM messages
 	systemPrompt := "You are a helpful assistant that answers questions based on the provided context from the user's notes. " +
 		"Answer the question using only the information from the context below. If the context doesn't contain " +
@@ -818,6 +873,9 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	logger.InfoContext(ctx, "received LLM response", "answer_length", len(answer))
 	logger.DebugContext(ctx, "LLM answer", "answer", answer)
 
+	// Generation phase complete
+	generationMs := time.Since(generationStart).Milliseconds()
+
 	// Build references from search results
 	references := make([]Reference, 0, len(chunks))
 	for _, chunk := range chunks {
@@ -842,7 +900,8 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		if maxDebugChunks > 50 {
 			maxDebugChunks = 50
 		}
-		debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, selectedCandidates, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks)
+		totalMs := time.Since(startTime).Milliseconds()
+		debugInfo := e.buildDebugInfo(ctx, deduplicated, candidates, selectedCandidates, orderedFolders, availableFolders, vaultIDToNameMap, maxDebugChunks, folderSelectionMs, retrievalMs, generationMs, totalMs)
 		resp.Debug = debugInfo
 	}
 
@@ -859,6 +918,10 @@ func (e *ragEngine) buildDebugInfo(
 	availableFolders []string,
 	vaultIDToNameMap map[int]string,
 	maxDebugChunks int,
+	folderSelectionMs int64,
+	retrievalMs int64,
+	generationMs int64,
+	totalMs int64,
 ) *DebugInfo {
 	logger := contextutil.LoggerFromContext(ctx)
 
@@ -880,6 +943,20 @@ func (e *ragEngine) buildDebugInfo(
 		}
 		for rank := 0; rank < limit; rank++ {
 			candidate := candidates[rank]
+			chunkText := candidate.chunk.Text
+			
+			// Fallback: if text is empty, try to fetch from database
+			// This handles cases where chunks might have been stored without text
+			if chunkText == "" {
+				if chunk, err := e.chunkRepo.GetByID(ctx, candidate.result.PointID); err == nil {
+					chunkText = chunk.Text
+					if chunkText != "" {
+						logger.DebugContext(ctx, "fetched chunk text from DB fallback",
+							"chunk_id", candidate.result.PointID)
+					}
+				}
+			}
+			
 			retrievedChunks = append(retrievedChunks, RetrievedChunk{
 				ChunkID:      candidate.result.PointID,
 				RelPath:      candidate.relPath,
@@ -887,7 +964,7 @@ func (e *ragEngine) buildDebugInfo(
 				ScoreVector:  float64(candidate.vectorScore),
 				ScoreLexical: float64(candidate.lexicalScore),
 				ScoreFinal:   float64(candidate.finalScore),
-				Text:         candidate.chunk.Text,
+				Text:         chunkText,
 				Rank:         rank + 1,
 			})
 		}
@@ -909,6 +986,16 @@ func (e *ragEngine) buildDebugInfo(
 			relPath, _ := result.Meta["rel_path"].(string)
 			headingPath, _ := result.Meta["heading_path"].(string)
 			
+			// Try to fetch chunk text from database
+			chunkText := ""
+			if chunk, err := e.chunkRepo.GetByID(ctx, result.PointID); err == nil {
+				chunkText = chunk.Text
+			} else {
+				logger.DebugContext(ctx, "failed to fetch chunk text from DB",
+					"chunk_id", result.PointID,
+					"error", err)
+			}
+			
 			retrievedChunks = append(retrievedChunks, RetrievedChunk{
 				ChunkID:      result.PointID,
 				RelPath:      relPath,
@@ -916,7 +1003,7 @@ func (e *ragEngine) buildDebugInfo(
 				ScoreVector:  float64(result.Score),
 				ScoreLexical: 0, // Not computed yet (requires chunk text)
 				ScoreFinal:   float64(result.Score), // Use vector score as final when no lexical score
-				Text:         "", // Not available (chunk not fetched from DB)
+				Text:         chunkText,
 				Rank:         rank + 1,
 			})
 		}
@@ -974,6 +1061,13 @@ func (e *ragEngine) buildDebugInfo(
 		FolderSelection: &FolderSelection{
 			SelectedFolders:  displayOrderedFolders,
 			AvailableFolders: displayAvailableFolders,
+		},
+		Latency: &LatencyBreakdown{
+			FolderSelectionMs: folderSelectionMs,
+			RetrievalMs:       retrievalMs,
+			GenerationMs:     generationMs,
+			JudgeMs:           0, // Judging happens in Python, not Go
+			TotalMs:           totalMs,
 		},
 	}
 }

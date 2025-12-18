@@ -97,7 +97,11 @@ func TestBuildDebugInfo(t *testing.T) {
 		orderedFolders,
 		availableFolders,
 		vaultIDToNameMap,
-		50, // maxDebugChunks
+		50,   // maxDebugChunks
+		10,   // folderSelectionMs
+		50,   // retrievalMs
+		100,  // generationMs
+		160,  // totalMs
 	)
 
 	// Verify debug info structure
@@ -168,12 +172,32 @@ func TestBuildDebugInfo(t *testing.T) {
 	} else {
 		for i, expected := range expectedAvailableFolders {
 			if i < len(debugInfo.FolderSelection.AvailableFolders) {
-				if debugInfo.FolderSelection.AvailableFolders[i] != expected {
-					t.Errorf("available folder[%d] = %q, want %q",
-						i, debugInfo.FolderSelection.AvailableFolders[i], expected)
-				}
-			}
+		if debugInfo.FolderSelection.AvailableFolders[i] != expected {
+			t.Errorf("available folder[%d] = %q, want %q",
+				i, debugInfo.FolderSelection.AvailableFolders[i], expected)
 		}
+	}
+
+	// Check latency breakdown
+	if debugInfo.Latency == nil {
+		t.Fatal("expected latency breakdown, got nil")
+	}
+	if debugInfo.Latency.FolderSelectionMs != 10 {
+		t.Errorf("expected folder_selection_ms 10, got %d", debugInfo.Latency.FolderSelectionMs)
+	}
+	if debugInfo.Latency.RetrievalMs != 50 {
+		t.Errorf("expected retrieval_ms 50, got %d", debugInfo.Latency.RetrievalMs)
+	}
+	if debugInfo.Latency.GenerationMs != 100 {
+		t.Errorf("expected generation_ms 100, got %d", debugInfo.Latency.GenerationMs)
+	}
+	if debugInfo.Latency.JudgeMs != 0 {
+		t.Errorf("expected judge_ms 0, got %d", debugInfo.Latency.JudgeMs)
+	}
+	if debugInfo.Latency.TotalMs != 160 {
+		t.Errorf("expected total_ms 160, got %d", debugInfo.Latency.TotalMs)
+	}
+}
 	}
 }
 
@@ -189,7 +213,11 @@ func TestBuildDebugInfo_EmptyCandidates(t *testing.T) {
 		[]string{},
 		[]string{},
 		map[int]string{},
-		50, // maxDebugChunks
+		50,  // maxDebugChunks
+		5,   // folderSelectionMs
+		20,  // retrievalMs
+		0,   // generationMs
+		25,  // totalMs
 	)
 
 	if debugInfo == nil {
@@ -206,6 +234,14 @@ func TestBuildDebugInfo_EmptyCandidates(t *testing.T) {
 
 	if len(debugInfo.FolderSelection.SelectedFolders) != 0 {
 		t.Errorf("expected 0 selected folders, got %d", len(debugInfo.FolderSelection.SelectedFolders))
+	}
+
+	// Check latency breakdown
+	if debugInfo.Latency == nil {
+		t.Fatal("expected latency breakdown, got nil")
+	}
+	if debugInfo.Latency.JudgeMs != 0 {
+		t.Errorf("expected judge_ms 0, got %d", debugInfo.Latency.JudgeMs)
 	}
 }
 
@@ -229,7 +265,11 @@ func TestBuildDebugInfo_FolderConversion(t *testing.T) {
 		orderedFolders,
 		availableFolders,
 		vaultIDToNameMap,
-		50, // maxDebugChunks
+		50,  // maxDebugChunks
+		8,   // folderSelectionMs
+		30,  // retrievalMs
+		0,   // generationMs
+		38,  // totalMs
 	)
 
 	if debugInfo == nil || debugInfo.FolderSelection == nil {

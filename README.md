@@ -667,3 +667,58 @@ All API endpoints are documented using go-swagger annotations. See `internal/han
 - **External Service Layer** (`internal/llm`) - llama.cpp API clients (chat and embeddings)
 
 See `AGENTS.md` for detailed architecture guidelines and coding standards.
+
+## Evaluation Framework
+
+The project includes a comprehensive Python-based evaluation framework for measuring chatbot effectiveness over time. The framework tracks core metrics (Retrieval Recall@K, MRR, Scope Miss Rate, Groundedness, Correctness, Abstention) and enables data-driven decisions about model changes, hardware upgrades, and embedding strategy improvements.
+
+### Evaluation Overview
+
+The evaluation framework is located in the `eval/` directory and includes:
+
+- **Test Suite**: JSONL format test cases (`eval_set.jsonl`) with anchor-based gold supports
+- **Core Metrics**: Defined in `eval/EVAL.md` - retrieval metrics, answer quality metrics, and abstention metrics
+- **Labeling Workflow**: Interactive script (`eval/scripts/label_eval.py`) for marking gold supports
+- **Results Storage**: Structured storage format for evaluation runs with latency/cost tracking
+
+### Evaluation Quick Start
+
+**Label Test Cases** (create ground truth):
+
+```bash
+python eval/scripts/label_eval.py --eval-set eval/eval_set.jsonl --api-url http://localhost:9000
+```
+
+**Run Evaluation** (when `run_eval.py` is implemented):
+
+```bash
+python eval/scripts/run_eval.py --eval-set eval/eval_set.jsonl --k 5
+```
+
+### Evaluation Documentation
+
+- **Core Metrics**: See `eval/EVAL.md` for detailed metric definitions
+- **Scripts Documentation**: See `eval/scripts/README.md` for script usage
+- **Setup Guide**: See `eval/scripts/SETUP.md` for environment setup
+- **Patterns and Guidelines**: See `eval/AGENTS.md` for evaluation framework patterns
+
+### Current Status
+
+**Completed:**
+
+- ✅ Stable chunk IDs (32-char hash) in Go API
+- ✅ Debug mode (`debug=true` query parameter) in `/api/v1/ask` endpoint
+- ✅ Core metrics documentation (`eval/EVAL.md`)
+- ✅ Initial eval set (`eval/eval_set.jsonl` with 50 test cases)
+- ✅ Results storage module (`eval/scripts/storage.py`)
+- ✅ Labeling workflow (`eval/scripts/label_eval.py`)
+
+**In Progress:**
+
+- 🔄 Evaluation runner (`run_eval.py`)
+- 🔄 Retrieval metrics calculator (`score_retrieval.py`)
+- 🔄 Answer quality judges (`judge_answers.py`)
+- 🔄 Abstention metrics calculator (`score_abstention.py`)
+- 🔄 Run comparison tool (`compare_runs.py`)
+
+See `.cursor/plans/chatbot_evaluation_framework_a914ccc3.plan.md` for the complete implementation plan.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/qdrant/go-client/qdrant"
 
@@ -175,7 +176,10 @@ func (s *QdrantStore) Search(ctx context.Context, collection string, query []flo
 	for _, result := range scoredPoints {
 		pointID := ""
 		if result.Id != nil {
-			pointID = result.Id.GetUuid()
+			// Qdrant returns UUIDs with dashes, but our chunk IDs are stored as 32 hex chars without dashes
+			// Normalize by removing dashes to match SQLite format
+			uuidStr := result.Id.GetUuid()
+			pointID = strings.ReplaceAll(uuidStr, "-", "")
 		}
 
 		score := result.Score

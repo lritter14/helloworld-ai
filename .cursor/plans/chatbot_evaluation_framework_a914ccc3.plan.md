@@ -22,10 +22,16 @@ todos:
     status: completed
   - id: python_runner
     content: Write Python eval runner (run_eval.py) with folder_mode options, latency tracking, cost tracking, retrieval-only mode (--retrieval-only flag), operational metrics (error rate, coverage by doc type), and indexing coverage stats capture (docs processed, chunks skipped, token distribution)
+    status: completed
+  - id: api_latency_tracking
+    content: Add latency breakdown tracking to Go API (measure and return folder_selection_ms, retrieval_ms, generation_ms, judge_ms in debug response). Instrument RAG engine to track timing for each phase and include in AskResponse when debug=true.
+    status: completed
+  - id: api_indexing_coverage
+    content: Add indexing coverage stats to Go API (docs_processed, docs_with_0_chunks, chunks_attempted/embedded/skipped, chunk_token_stats, chunker_version, index_version). Can be per-request or global index stats endpoint. Include in debug response or separate endpoint.
     status: pending
   - id: retrieval_metrics
     content: Implement retrieval metrics calculator (score_retrieval.py) for Recall@K (any + all for multi-hop), MRR, Precision@K, Scope Miss Rate, and Attribution Hit Rate (anchor-based matching with prefix match rules, multi-hop support groups, recency/conflict rules)
-    status: pending
+    status: completed
   - id: answer_quality_judges
     content: Implement answer quality judges (judge_answers.py) - separate groundedness (with citation coverage requirement) and correctness judges with fixed model (immutable version), temperature=0, structured JSON output. Add optional judge reliability spot-check (re-judge random subset). Add judge caching (keyed by question+answer+context_hash+judge+prompt).
     status: pending

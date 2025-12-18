@@ -48,6 +48,22 @@ type DebugInfo struct {
 	RetrievedChunks []RetrievedChunk `json:"retrieved_chunks"`
 	// FolderSelection contains folder selection information.
 	FolderSelection *FolderSelection `json:"folder_selection,omitempty"`
+	// Latency contains timing breakdown for each phase of the RAG pipeline.
+	Latency *LatencyBreakdown `json:"latency,omitempty"`
+}
+
+// LatencyBreakdown contains timing information for each phase of the RAG pipeline.
+type LatencyBreakdown struct {
+	// FolderSelectionMs is the time spent in folder selection (milliseconds).
+	FolderSelectionMs int64 `json:"folder_selection_ms"`
+	// RetrievalMs is the time spent in vector search and reranking (milliseconds).
+	RetrievalMs int64 `json:"retrieval_ms"`
+	// GenerationMs is the time spent in LLM generation (milliseconds).
+	GenerationMs int64 `json:"generation_ms"`
+	// JudgeMs is the time spent in answer judging (milliseconds). Always 0 in Go API (judging happens in Python).
+	JudgeMs int64 `json:"judge_ms"`
+	// TotalMs is the total time for the entire RAG query (milliseconds).
+	TotalMs int64 `json:"total_ms"`
 }
 
 // RetrievedChunk represents a retrieved chunk with scoring information.
