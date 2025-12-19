@@ -96,6 +96,7 @@ eval/results/
     results.jsonl      # One line per test case (full detail)
     metrics.json       # Aggregated metrics (committed to git)
     config.json        # Run configuration snapshot
+    summary.md         # Human-readable summary with description and metrics
 ```
 
 ## Script Patterns
@@ -158,7 +159,7 @@ result = TestResult(test_case_id="test_001", ...)
 writer.write_result(result, store_full_text=False)
 ```
 
-### 3. Evaluation Runner (`run_eval.py`) - To Be Implemented
+### 3. Evaluation Runner (`run_eval.py`)
 
 **Purpose**: Execute test suite against Go API and store results.
 
@@ -166,11 +167,13 @@ writer.write_result(result, store_full_text=False)
 
 - Reads `eval_set.jsonl` (frozen dataset version)
 - Calls `/api/v1/ask` for each question (with `debug=true`)
-- Captures full response (answer, references, retrieved chunks)
-- Records configuration snapshot
-- Tracks latency breakdown and cost
+- Captures full response (answer, references, retrieved chunks, abstention flags)
+- Records configuration snapshot (K, rerank weights, folder mode, model names, etc.)
+- Tracks latency breakdown (folder selection, retrieval, generation, judge)
+- Tracks cost (judge tokens, estimated cost)
 - **Retrieval-Only Mode**: `--retrieval-only` flag for fast iteration (no judge cost)
-- **Judge Caching**: Cache judge calls keyed by `(question, answer, context_hash, judge, prompt)`
+- **Text Storage**: Default truncation to 200 chars, `--store-full-text` for full text
+- Creates timestamp-based run IDs (e.g., `20251218_063617`)
 
 **Usage**:
 
@@ -180,41 +183,81 @@ python eval/scripts/run_eval.py --eval-set eval/eval_set.jsonl --k 5
 
 # Retrieval-only (fast, no judge cost)
 python eval/scripts/run_eval.py --eval-set eval/eval_set.jsonl --retrieval-only
+
+# Custom configuration
+python eval/scripts/run_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --k 10 \
+    --folder-mode on_with_fallback \
+    --api-url http://localhost:9000 \
+    --timeout 120
 ```
 
-### 4. Retrieval Metrics Calculator (`score_retrieval.py`) - To Be Implemented
+**Output**:
+
+- Creates run directory: `eval/results/<run_id>/`
+- Writes `results.jsonl`: One line per test case with full results
+- Writes `config.json`: Run configuration snapshot
+- Writes `metrics.json`: Aggregated operational metrics (error rate, latency, etc.)
+
+### 4. Retrieval Metrics Calculator (`score_retrieval.py`)
 
 **Purpose**: Calculate retrieval metrics from debug API response.
 
 **Metrics**:
 
 - **Recall@K**: Binary - any retrieved chunk matches gold_supports?
-  - `Recall_any@K`: At least one support hit
-  - `Recall_all@K`: All required supports retrieved (for multi-hop)
-- **MRR**: 1/rank of first matching chunk
+  - `Recall_any@K`: At least one support hit (default)
+  - `Recall_all@K`: All required supports retrieved (for multi-hop with `required_support_groups`)
+- **MRR**: 1/rank of first matching chunk (0 if no match)
 - **Precision@K**: Fraction of top K chunks that match any gold_support anchor
-- **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports
-- **Attribution Hit Rate**: Did final cited references include at least one matching gold_support?
+- **Scope Miss Rate**: Fraction of cases where folder selection excluded all gold supports (only when `folder_mode=on` or `on_with_fallback`)
+- **Attribution Hit Rate**: Did final cited references include at least one matching gold_support? (only for answerable questions)
 
 **Match Definition**:
 
-- Normalize `heading_path`: strip extra spaces, consistent delimiter (` > `)
+- Normalize `heading_path`: strip extra spaces, consistent delimiter (` > `), strip heading level markers
 - Match if: same `rel_path` (exact) AND retrieved `heading_path` starts with gold `heading_path` (prefix match)
-- Handles chunking depth changes gracefully
+- If `snippets` provided in gold_supports, require at least one snippet to appear in chunk text
+- Handles chunking depth changes gracefully (prefix matching allows deeper chunking)
 
 **Multi-hop Handling**:
 
 - For `category: "multi_hop"` with `required_support_groups`, compute both `Recall_any@K` and `Recall_all@K`
 - `Recall_all@K` prevents multi-hop questions from looking "green" when only half the needed evidence was retrieved
+- Groups are OR-of-groups, AND within group (e.g., `[[0, 1], [2]]` means: (support 0 AND support 1) OR support 2)
 
-### 5. Answer Quality Judges (`judge_answers.py`) - To Be Implemented
+**Usage**:
+
+```bash
+# Compute retrieval metrics for a run
+python eval/scripts/score_retrieval.py --run-id <run_id> --eval-set eval/eval_set.jsonl
+
+# Aggregate only (don't update results.jsonl)
+python eval/scripts/score_retrieval.py --run-id <run_id> --eval-set eval/eval_set.jsonl --aggregate-only
+
+# Output metrics to file
+python eval/scripts/score_retrieval.py --run-id <run_id> --eval-set eval/eval_set.jsonl --output-metrics metrics.json
+```
+
+**Output**:
+
+- Updates `results.jsonl` with `retrieval_metrics` field for each test case
+- Computes aggregate metrics (averages across all tests)
+- Can output aggregate metrics to JSON file or stdout
+
+### 5. Answer Quality Judges (`judge_answers.py`)
 
 **Purpose**: Judge answer quality using LLM-as-judge with controlled configuration.
 
 **Two Separate Scores**:
 
 1. **Groundedness (0-5)**: Are all claims in the answer supported by the provided context?
+   - Returns structured JSON with `unsupported_claims` and `supported_claims` lists
+   - Score of 5 requires citations for all major claims
 2. **Correctness (0-5)**: Does the answer correctly address the question?
+   - Considers context + question
+   - Returns score and reasoning
 
 **Judge Configuration** (Critical for preventing drift):
 
@@ -227,14 +270,45 @@ python eval/scripts/run_eval.py --eval-set eval/eval_set.jsonl --retrieval-only
 
 - Cache judge calls keyed by `(question, answer, topK_context_hash, judge_model, prompt_version)`
 - Speeds up re-runs and reduces costs
-- Cache stored in `cache/judge_cache.jsonl`
+- Cache stored in `cache/judge_cache.jsonl` (JSONL format)
+- Automatically checks cache before making judge calls
 
-**Structured Output**:
+**Judge Options**:
 
-- Groundedness judge returns structured JSON with `unsupported_claims` and `supported_claims` lists
-- Makes debugging dramatically easier
+- **Local LLM**: Use local llama.cpp server (e.g., `qwen2.5-14b`)
+- **Cloud LLM**: Use OpenAI (`openai:gpt-4`) or Anthropic (`anthropic:claude-3-5-sonnet-20241022`)
 
-### 6. Abstention Metrics Calculator (`score_abstention.py`) - To Be Implemented
+**Usage**:
+
+```bash
+# Judge all results in a run (local model)
+python eval/scripts/judge_answers.py --run-id <run_id> --judge-model qwen2.5-14b
+
+# Judge with cloud model
+python eval/scripts/judge_answers.py --run-id <run_id> --judge-model openai:gpt-4
+
+# Judge with custom base URL
+python eval/scripts/judge_answers.py \
+    --run-id <run_id> \
+    --judge-model qwen2.5-14b \
+    --judge-base-url http://localhost:8081
+
+# Reliability spot-check
+python eval/scripts/judge_answers.py \
+    --run-id <run_id> \
+    --judge-model qwen2.5-14b \
+    --spot-check \
+    --spot-check-n 20
+```
+
+**Output**:
+
+- Updates `results.jsonl` with `groundedness` and `correctness` fields for each test case
+- Stores `judge_input` payload for reproducibility
+- Tracks `cost` (judge tokens and estimated cost)
+- Computes aggregate metrics (averages across all tests)
+
+### 6. Abstention Metrics Calculator (`score_abstention.py`)
 
 **Purpose**: Measure whether the system knows when not to answer.
 
@@ -242,34 +316,174 @@ python eval/scripts/run_eval.py --eval-set eval/eval_set.jsonl --retrieval-only
 
 - **Abstention Accuracy**: Did the model refuse/say it can't find support? (Binary: 1 if abstained, 0 if answered)
 - **Hallucination Rate on Unanswerable**: Did it confidently answer anyway? (Binary: 1 if answered confidently, 0 if abstained)
+  - Inverse of abstention accuracy
+  - High rate indicates the system is hallucinating on unanswerable questions
 
 **Detection**:
 
-- **Option 1 (Preferred)**: Use explicit `abstained: bool` field in Go API response
-- **Option 2 (Fallback)**: Use a tiny judge prompt for abstention classification
+- **Option 1 (Preferred)**: Use explicit `abstained: bool` field in Go API response ✅ Implemented
+- **Option 2 (Fallback)**: Infer from answer field (empty answer → abstained, non-empty → not abstained)
 
-**Rationale**: Prevents "Recall@K is always 0" from being misinterpreted as "retrieval is broken" when the correct behavior is to abstain.
+**Logic**:
 
-### 7. Run Comparison Tool (`compare_runs.py`) - To Be Implemented
+- For unanswerable questions (`answerable=false`):
+  - If `abstained=True` → abstention_accuracy = 1.0, hallucinated = False (correct behavior)
+  - If `abstained=False` → abstention_accuracy = 0.0, hallucinated = True (incorrect behavior)
+- For answerable questions (`answerable=true`):
+  - Abstention metrics are not computed (not applicable)
 
-**Purpose**: Compare two evaluation runs to identify improvements and regressions.
+**Usage**:
+
+```bash
+# Compute abstention metrics for a run
+python eval/scripts/score_abstention.py --run-id <run_id> --eval-set eval/eval_set.jsonl
+
+# Aggregate only (don't update results.jsonl)
+python eval/scripts/score_abstention.py --run-id <run_id> --eval-set eval/eval_set.jsonl --aggregate-only
+
+# Output metrics to file
+python eval/scripts/score_abstention.py --run-id <run_id> --eval-set eval/eval_set.jsonl --output-metrics metrics.json
+```
 
 **Output**:
 
-- Metric deltas (Recall@K, MRR, groundedness avg)
+- Updates `results.jsonl` with `abstention` field for unanswerable test cases
+- Computes aggregate metrics:
+  - `abstention_accuracy`: Average across all unanswerable questions
+  - `hallucination_rate_unanswerable`: Average across all unanswerable questions
+  - `unanswerable_tests`: Count of unanswerable questions
+  - `answerable_tests`: Count of answerable questions
+
+**Rationale**: Prevents "Recall@K is always 0" from being misinterpreted as "retrieval is broken" when the correct behavior is to abstain. Critical for real-world RAG systems.
+
+### 7. Full Evaluation Pipeline (`run_full_eval.py`)
+
+**Purpose**: Single entry point that runs all evaluation scripts in the correct order.
+
+**Pipeline Steps**:
+
+1. **run_eval.py** - Execute evaluation suite against Go API
+2. **score_retrieval.py** - Compute retrieval metrics (Recall@K, MRR, etc.)
+3. **judge_answers.py** - Judge answer quality (optional, if judge model provided)
+4. **score_abstention.py** - Compute abstention metrics
+
+**Key Features**:
+
+- **Interactive Description Prompt**: Prompts user for qualitative description of what's being tested (compared to last run)
+- **Automatic Summary Generation**: Creates `summary.md` with run description, configuration, and metrics breakdown
+- Automatically finds the most recent run ID after `run_eval.py` completes
+- Passes through all arguments from individual scripts
+- Provides clear progress indicators for each step
+- Continues pipeline even if individual steps fail (with warnings)
+- Shows summary at the end with run ID and results location
+
+**Usage**:
+
+```bash
+# Full evaluation with judges
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --judge-model qwen2.5-14b
+
+# Retrieval-only (fast, no judge cost)
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --retrieval-only
+
+# Custom configuration
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --k 10 \
+    --judge-model qwen2.5-14b \
+    --judge-base-url http://localhost:8081
+
+# Skip specific steps
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --judge-model qwen2.5-14b \
+    --skip-retrieval-metrics \
+    --skip-abstention-metrics
+
+# Non-interactive mode (skip description prompt)
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --judge-model qwen2.5-14b \
+    --skip-description-prompt
+
+# Provide description directly
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --judge-model qwen2.5-14b \
+    --description "Testing increased K value from 5 to 10"
+```
+
+**Arguments**:
+
+- Accepts all arguments from individual scripts (`run_eval.py`, `judge_answers.py`, etc.)
+- Control flags:
+  - `--retrieval-only`: Skip judge calls (faster iteration)
+  - `--skip-judges`: Skip judge step even if judge-model is provided
+  - `--skip-retrieval-metrics`: Skip retrieval metrics computation
+  - `--skip-abstention-metrics`: Skip abstention metrics computation
+  - `--skip-description-prompt`: Skip interactive description prompt (use default)
+  - `--description`: Provide run description directly (skips interactive prompt)
+
+**Summary Generation**:
+
+After all steps complete, the script automatically generates `summary.md` in the run directory containing:
+
+- **Run Description**: User's qualitative description of what's being tested
+- **Configuration**: All models, settings, and parameters used
+- **Metrics Overview**: High-level explanation of all metrics tracked
+- **Results Summary**: Actual metric values from the run (if available)
+- **Comparison to Previous Run**: Configuration and metric changes compared to last run (if available)
+
+**Rationale**: Provides a single command to run the full evaluation pipeline, making it easier to run consistent evaluations and reducing the chance of missing steps. The summary file provides a human-readable overview of each run for quick reference and comparison.
+
+### 8. Run Comparison Tool (`compare_runs.py`)
+
+**Purpose**: Compare two evaluation runs to identify improvements and regressions.
+
+**Status**: ✅ Implemented
+
+**Output**:
+
+- Metric deltas (Recall@K, MRR, groundedness avg, correctness avg, etc.)
 - Top regressions (questions that flipped from success → fail)
 - Top improvements (questions that flipped from fail → success)
 - Configuration differences
+- Invariant checking with warnings/errors
 
 **Invariants Checking**:
 
-- Fail fast if these don't match (unless `--ignore-invariants` flag):
+- Checks if these match (fails fast unless `--ignore-invariants` flag):
   - Same eval set commit hash
   - Same judge model + judge prompt version
   - Same judge temperature
-  - Same debug payload fields
+  - Same debug payload fields (implicitly checked via results structure)
 
-**Rationale**: Prevents meaningless comparisons (e.g., comparing runs with different test cases or different judges).
+**Usage**:
+
+```bash
+# Compare two runs
+python eval/scripts/compare_runs.py \
+    --run-id-1 <baseline_run_id> \
+    --run-id-2 <new_run_id>
+
+# Ignore invariants (for exploratory comparisons)
+python eval/scripts/compare_runs.py \
+    --run-id-1 <baseline_run_id> \
+    --run-id-2 <new_run_id> \
+    --ignore-invariants
+```
+
+**Output Format**: Terminal report with:
+- Configuration differences
+- Metric deltas (with color coding for improvements/regressions)
+- Top regressions and improvements
+- Invariant warnings/errors
+
+**Rationale**: Prevents meaningless comparisons (e.g., comparing runs with different test cases or different judges). Provides quick feedback on whether changes improved or degraded performance.
 
 ## Test Case Format
 
@@ -375,26 +589,101 @@ python eval/scripts/run_eval.py --eval-set eval/eval_set.jsonl --retrieval-only
 
 ### 2. Test Execution
 
-- Run evaluation suite (`run_eval.py`) - 🔄 To Be Implemented
+**Option A: Full Pipeline (Recommended)**
+
+Use `run_full_eval.py` to run all steps in sequence:
+
+```bash
+# Full evaluation with judges
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --judge-model qwen2.5-14b
+
+# Retrieval-only (fast, no judge cost)
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --retrieval-only
+```
+
+**Option B: Individual Scripts**
+
+Run scripts individually for more control:
+
+```bash
+# Step 1: Run evaluation suite
+python eval/scripts/run_eval.py --eval-set eval/eval_set.jsonl --k 5
+
+# Step 2: Compute retrieval metrics
+python eval/scripts/score_retrieval.py --run-id <run_id> --eval-set eval/eval_set.jsonl
+
+# Step 3: Judge answers (optional)
+python eval/scripts/judge_answers.py --run-id <run_id> --judge-model qwen2.5-14b
+
+# Step 4: Compute abstention metrics
+python eval/scripts/score_abstention.py --run-id <run_id> --eval-set eval/eval_set.jsonl
+```
+
+**What Happens**:
+
+- `run_eval.py` creates a run directory with timestamp-based ID (e.g., `20251218_063617`)
 - Captures results with full configuration snapshot
 - Tracks latency breakdown and cost
+- Writes `results.jsonl`, `config.json`, and initial `metrics.json`
 
 ### 3. Scoring
 
-- Calculate retrieval metrics (`score_retrieval.py`) - 🔄 To Be Implemented
-- Judge answer quality (`judge_answers.py`) - 🔄 To Be Implemented
-- Calculate abstention metrics (`score_abstention.py`) - 🔄 To Be Implemented
+The scoring scripts update `results.jsonl` with computed metrics:
+
+- **score_retrieval.py**: Adds `retrieval_metrics` field (Recall@K, MRR, Precision@K, etc.)
+- **judge_answers.py**: Adds `groundedness`, `correctness`, `judge_input`, and `cost` fields
+- **score_abstention.py**: Adds `abstention` field for unanswerable questions
+
+**Note**: Each script can be run independently and will update the same `results.jsonl` file. Scripts are idempotent - running them multiple times will recompute and update metrics.
 
 ### 4. Analysis
 
 - Compare runs (`compare_runs.py`) - 🔄 To Be Implemented
 - Identify regressions and improvements
+- Review aggregated metrics in `metrics.json`
+- Examine individual results in `results.jsonl`
 
 ### 5. Iteration
 
 - Make controlled changes (one thing at a time)
 - Re-run evaluation
 - Track improvements over time
+
+## Script Execution Order
+
+The evaluation scripts must be run in a specific order for metrics to be computed correctly:
+
+1. **run_eval.py** (Required first)
+   - Executes test cases against the API
+   - Creates run directory and initial results
+   - Must run before any scoring scripts
+
+2. **score_retrieval.py** (Can run independently)
+   - Computes retrieval metrics from debug API response
+   - Requires `results.jsonl` from `run_eval.py`
+   - Can run before or after judges
+
+3. **judge_answers.py** (Optional)
+   - Judges answer quality using LLM
+   - Requires `results.jsonl` from `run_eval.py`
+   - Can be skipped with `--retrieval-only` mode
+   - Uses caching to speed up re-runs
+
+4. **score_abstention.py** (Can run independently)
+   - Computes abstention metrics for unanswerable questions
+   - Requires `results.jsonl` from `run_eval.py`
+   - Can run before or after judges
+
+**Recommended Workflow**:
+
+- **Fast Iteration**: Use `run_full_eval.py --retrieval-only` to skip judges
+- **Full Evaluation**: Use `run_full_eval.py` with `--judge-model` for complete metrics
+- **Re-judge Existing Run**: Run `judge_answers.py --run-id <id>` on a previous run
+- **Re-compute Metrics**: Run scoring scripts individually to update metrics
 
 ## Controlled Experiments Approach
 
@@ -474,10 +763,11 @@ eval/
     ├── test_storage.py        # Storage tests ✅
     ├── README.md              # Scripts documentation ✅
     ├── SETUP.md               # Setup guide ✅
-    ├── run_eval.py            # Main evaluation runner 🔄
-    ├── score_retrieval.py     # Retrieval metrics calculator 🔄
-    ├── judge_answers.py       # Answer quality judges 🔄
-    ├── score_abstention.py    # Abstention metrics calculator 🔄
+    ├── run_eval.py            # Main evaluation runner ✅
+    ├── score_retrieval.py     # Retrieval metrics calculator ✅
+    ├── judge_answers.py       # Answer quality judges ✅
+    ├── score_abstention.py    # Abstention metrics calculator ✅
+    ├── run_full_eval.py       # Full evaluation pipeline entry point ✅
     └── compare_runs.py        # Run comparison tool 🔄
 ```
 

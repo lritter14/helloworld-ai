@@ -273,7 +273,8 @@ defer ctrl.Finish()
 mockRAGEngine := mocks.NewMockEngine(ctrl)
 mockVaultRepo := mocks.NewMockVaultStore(ctrl)
 
-handler := NewAskHandler(mockRAGEngine, mockVaultRepo)
+handler := NewAskHandler(mockRAGEngine, mockVaultRepo, nil, "")
+// Note: nil indexerPipeline and empty embeddingModelName disable indexing coverage stats
 ```
 
 **HTTP Testing:**
@@ -333,8 +334,23 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
   - All retrieved chunks with scores (vector, lexical, final) and ranks
   - Folder selection information (selected and available folders)
   - Chunk metadata (ID, rel_path, heading_path, text)
+  - **Latency breakdown** (timing for each phase):
+    - `folder_selection_ms` - Time spent selecting relevant folders
+    - `retrieval_ms` - Time spent in vector search and reranking
+    - `generation_ms` - Time spent generating answer with LLM
+    - `judge_ms` - Time spent in judge calls (if applicable)
+    - `total_ms` - Total request time
+  - **Indexing coverage statistics** (when indexer pipeline is available):
+    - `docs_processed` - Total documents indexed
+    - `docs_with_0_chunks` - Documents that produced no chunks
+    - `chunks_attempted`, `chunks_embedded`, `chunks_skipped` - Chunk processing metrics
+    - `chunk_token_stats` - Token count statistics (min, max, mean, p95)
+    - `chunker_version` - Version of chunker implementation
+    - `index_version` - Hash identifying index build configuration
 
 - Useful for evaluation frameworks and debugging retrieval quality
+- Latency breakdown enables performance analysis and optimization
+- Indexing coverage stats are computed from current database state (real-time)
 
 **Abstention:**
 

@@ -44,6 +44,12 @@ func NewNoteRepo(db *sql.DB) *NoteRepo {
 	return &NoteRepo{db: db}
 }
 
+// DB returns the underlying database connection.
+// This is used for stats queries that need direct SQL access.
+func (r *NoteRepo) DB() *sql.DB {
+	return r.db
+}
+
 // GetByVaultAndPath gets a note by vault ID and relative path.
 // Returns nil and ErrNotFound if not found.
 func (r *NoteRepo) GetByVaultAndPath(ctx context.Context, vaultID int, relPath string) (*NoteRecord, error) {

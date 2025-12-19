@@ -165,6 +165,25 @@ func (r *NoteRepo) ListUniqueFolders(ctx context.Context, vaultIDs []int) ([]str
 // Returns: ["1/", "1/projects", "1/projects/work"]
 ```
 
+## Database Access
+
+Repositories expose the underlying database connection via `DB()` method for advanced queries:
+
+```go
+func (r *NoteRepo) DB() *sql.DB {
+    return r.db
+}
+
+func (r *ChunkRepo) DB() *sql.DB {
+    return r.db
+}
+```
+
+**Usage:**
+- Used by indexer for stats queries that need direct SQL access
+- Should be used sparingly - prefer repository methods when possible
+- Useful for complex queries that don't fit standard repository patterns
+
 ## Rules
 
 - NO business logic - Only persistence and queries
@@ -175,3 +194,4 @@ func (r *NoteRepo) ListUniqueFolders(ctx context.Context, vaultIDs []int) ([]str
 - Use temporary directories for test isolation
 - `GetByID` returns full chunk record including text (for RAG)
 - `ListUniqueFolders` returns folders in format `"<vaultID>/folder"` including nested parents
+- `DB()` method exposes underlying connection for advanced queries (use sparingly)

@@ -21,13 +21,14 @@ import (
 
 // Deps holds dependencies for the HTTP router.
 type Deps struct {
-	RAGEngine       rag.Engine
-	VaultRepo       storage.VaultStore
-	IndexerPipeline *indexer.Pipeline
-	VaultManager    *vault.Manager
-	VectorStore     vectorstore.VectorStore
-	LLMClient       *llm.Client
-	CollectionName  string
+	RAGEngine         rag.Engine
+	VaultRepo         storage.VaultStore
+	IndexerPipeline   *indexer.Pipeline
+	VaultManager      *vault.Manager
+	VectorStore       vectorstore.VectorStore
+	LLMClient         *llm.Client
+	CollectionName    string
+	EmbeddingModelName string
 }
 
 // NewRouter creates a new HTTP router with the provided dependencies.
@@ -48,7 +49,7 @@ func NewRouter(deps *Deps) http.Handler {
 
 	// Create handlers
 	healthHandler := handlers.NewHealthHandler(deps.VectorStore, deps.LLMClient, deps.CollectionName)
-	askHandler := handlers.NewAskHandler(deps.RAGEngine, deps.VaultRepo)
+	askHandler := handlers.NewAskHandler(deps.RAGEngine, deps.VaultRepo, deps.IndexerPipeline, deps.EmbeddingModelName)
 	indexHandler := handlers.NewIndexHandler(deps.IndexerPipeline)
 	noteHandler := handlers.NewNoteHandler(deps.VaultManager)
 

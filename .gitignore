@@ -67,3 +67,10 @@ env/
 *.egg-info/
 dist/
 build/
+
+# Evaluation framework
+# Ignore results.jsonl files (contain sensitive chunk text and answers)
+# Keep metrics.json and config.json for tracking trends
+eval/results/**/results.jsonl
+# Ignore judge cache (can be regenerated)
+eval/cache/

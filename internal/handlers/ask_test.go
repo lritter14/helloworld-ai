@@ -21,7 +21,7 @@ func TestAskHandler_DebugMode(t *testing.T) {
 	mockRAGEngine := &mockRAGEngine{}
 	mockVaultRepo := storage_mocks.NewMockVaultStore(ctrl)
 
-	handler := NewAskHandler(mockRAGEngine, mockVaultRepo)
+	handler := NewAskHandler(mockRAGEngine, mockVaultRepo, nil, "")
 
 	tests := []struct {
 		name           string

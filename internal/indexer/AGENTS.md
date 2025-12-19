@@ -221,6 +221,44 @@ func (p *Pipeline) embedTextsWithRetry(ctx context.Context, texts []string,
 - Skipped chunks are logged with warnings but don't fail indexing
 - Only chunks with successful embeddings are stored in SQLite and Qdrant
 
+## Indexing Coverage Statistics
+
+The indexer provides statistics about the indexing process for evaluation and monitoring:
+
+### GetIndexingCoverageStats
+
+```go
+stats, err := pipeline.GetIndexingCoverageStats(ctx, embeddingModelName)
+if err != nil {
+    return fmt.Errorf("failed to get stats: %w", err)
+}
+```
+
+**Returns:**
+- `docs_processed` - Total number of documents indexed
+- `docs_with_0_chunks` - Number of documents that produced no chunks
+- `chunks_attempted` - Total chunks attempted to be embedded
+- `chunks_embedded` - Number of chunks successfully embedded and stored
+- `chunks_skipped` - Number of chunks skipped (e.g., due to context size limits)
+- `chunk_token_stats` - Statistics about token counts (min, max, mean, p95)
+- `chunker_version` - Version identifier for the chunker implementation
+- `index_version` - Hash identifying the index build (chunker + embedding model + params)
+
+**Token Statistics:**
+- Token counts are estimated from rune counts (approximation: ~4 chars per token)
+- Statistics include min, max, mean, and 95th percentile
+- Useful for monitoring chunk size distribution and identifying outliers
+
+**Version Tracking:**
+- `chunker_version` is a constant (`v1.0`) that should be updated when chunking logic changes significantly
+- `index_version` is a hash of chunker version + embedding model + chunking parameters
+- Enables tracking index changes across evaluation runs
+
+**Usage:**
+- Called by handlers when `debug=true` is enabled in API requests
+- Provides real-time statistics about the current index state
+- Used by evaluation framework to track indexing coverage metrics
+
 ## Integration Points
 
 ### Dependencies
@@ -360,6 +398,8 @@ logger := slog.New(slog.NewTextHandler(io.Discard, nil)) // Suppress logs in tes
 - **Test Isolation:** Use mocks for all dependencies
 - **Log Suppression:** Suppress log output during tests for cleaner test runs
 - **Startup validation:** Validate embedding vector size matches Qdrant collection (fail-fast)
+- **Stats computation:** `GetIndexingCoverageStats` queries current database state (not tracked during indexing)
+- **Token estimation:** Use rune count / 4 as approximation for token counts in statistics
 
 ## Chunking Edge Cases
 

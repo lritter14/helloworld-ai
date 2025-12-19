@@ -241,13 +241,14 @@ func main() {
 
 	// Create router with dependencies
 	deps := &http.Deps{
-		RAGEngine:       ragEngine,
-		VaultRepo:       vaultRepo,
-		IndexerPipeline: indexerPipeline,
-		VaultManager:    vaultManager,
-		VectorStore:     vectorStore,
-		LLMClient:       llmClient,
-		CollectionName:  cfg.QdrantCollection,
+		RAGEngine:          ragEngine,
+		VaultRepo:          vaultRepo,
+		IndexerPipeline:    indexerPipeline,
+		VaultManager:       vaultManager,
+		VectorStore:        vectorStore,
+		LLMClient:          llmClient,
+		CollectionName:     cfg.QdrantCollection,
+		EmbeddingModelName: cfg.EmbeddingModelName,
 	}
 	router := http.NewRouter(deps)
 

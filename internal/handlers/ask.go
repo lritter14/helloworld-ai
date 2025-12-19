@@ -8,21 +8,26 @@ import (
 	"strings"
 
 	"helloworld-ai/internal/contextutil"
+	"helloworld-ai/internal/indexer"
 	"helloworld-ai/internal/rag"
 	"helloworld-ai/internal/storage"
 )
 
 // AskHandler handles HTTP requests for RAG queries.
 type AskHandler struct {
-	ragEngine rag.Engine
-	vaultRepo storage.VaultStore
+	ragEngine        rag.Engine
+	vaultRepo        storage.VaultStore
+	indexerPipeline  *indexer.Pipeline
+	embeddingModelName string
 }
 
 // NewAskHandler creates a new AskHandler.
-func NewAskHandler(ragEngine rag.Engine, vaultRepo storage.VaultStore) *AskHandler {
+func NewAskHandler(ragEngine rag.Engine, vaultRepo storage.VaultStore, indexerPipeline *indexer.Pipeline, embeddingModelName string) *AskHandler {
 	return &AskHandler{
-		ragEngine: ragEngine,
-		vaultRepo: vaultRepo,
+		ragEngine:        ragEngine,
+		vaultRepo:        vaultRepo,
+		indexerPipeline:  indexerPipeline,
+		embeddingModelName: embeddingModelName,
 	}
 }
 
@@ -59,6 +64,20 @@ type AskResponse struct {
 	Debug *DebugInfo `json:"debug,omitempty"`
 }
 
+// DebugInfo contains debug information when debug mode is enabled.
+//
+// swagger:model DebugInfo
+type DebugInfo struct {
+	// RetrievedChunks contains all retrieved chunks with scores and ranks.
+	RetrievedChunks []DebugRetrievedChunk `json:"retrieved_chunks"`
+	// FolderSelection contains folder selection information.
+	FolderSelection *DebugFolderSelection `json:"folder_selection,omitempty"`
+	// Latency contains timing breakdown for each phase of the RAG pipeline.
+	Latency *LatencyBreakdown `json:"latency,omitempty"`
+	// IndexingCoverage contains indexing coverage statistics.
+	IndexingCoverage *IndexingCoverage `json:"indexing_coverage,omitempty"`
+}
+
 // ReferenceResponse represents a reference in the HTTP response.
 //
 // swagger:model ReferenceResponse
@@ -74,18 +93,6 @@ type ReferenceResponse struct {
 
 	// Index of the chunk within the document
 	ChunkIndex int `json:"chunk_index"`
-}
-
-// DebugInfo contains debug information when debug mode is enabled.
-//
-// swagger:model DebugInfo
-type DebugInfo struct {
-	// RetrievedChunks contains all retrieved chunks with scores and ranks.
-	RetrievedChunks []DebugRetrievedChunk `json:"retrieved_chunks"`
-	// FolderSelection contains folder selection information.
-	FolderSelection *DebugFolderSelection `json:"folder_selection,omitempty"`
-	// Latency contains timing breakdown for each phase of the RAG pipeline.
-	Latency *LatencyBreakdown `json:"latency,omitempty"`
 }
 
 // LatencyBreakdown contains timing information for each phase of the RAG pipeline.
@@ -134,6 +141,44 @@ type DebugFolderSelection struct {
 	SelectedFolders []string `json:"selected_folders"`
 	// AvailableFolders is the list of all available folders.
 	AvailableFolders []string `json:"available_folders,omitempty"`
+}
+
+// IndexingCoverage contains indexing coverage statistics.
+//
+// swagger:model IndexingCoverage
+type IndexingCoverage struct {
+	// DocsProcessed is the total number of documents processed.
+	DocsProcessed int `json:"docs_processed"`
+	// DocsWith0Chunks is the number of documents that produced 0 chunks.
+	DocsWith0Chunks int `json:"docs_with_0_chunks"`
+	// ChunksAttempted is the total number of chunks that were attempted to be embedded.
+	ChunksAttempted int `json:"chunks_attempted"`
+	// ChunksEmbedded is the number of chunks successfully embedded and stored.
+	ChunksEmbedded int `json:"chunks_embedded"`
+	// ChunksSkipped is the number of chunks skipped (e.g., due to context size limits).
+	ChunksSkipped int `json:"chunks_skipped"`
+	// ChunksSkippedReasons is a breakdown of why chunks were skipped.
+	ChunksSkippedReasons map[string]int `json:"chunks_skipped_reasons,omitempty"`
+	// ChunkTokenStats contains statistics about token counts per chunk.
+	ChunkTokenStats *ChunkTokenStats `json:"chunk_token_stats,omitempty"`
+	// ChunkerVersion is the version of the chunker used.
+	ChunkerVersion string `json:"chunker_version,omitempty"`
+	// IndexVersion is a hash identifying the index build (chunker + embedding model + params).
+	IndexVersion string `json:"index_version,omitempty"`
+}
+
+// ChunkTokenStats contains statistics about token counts in chunks.
+//
+// swagger:model ChunkTokenStats
+type ChunkTokenStats struct {
+	// Min is the minimum token count across all chunks.
+	Min int `json:"min"`
+	// Max is the maximum token count across all chunks.
+	Max int `json:"max"`
+	// Mean is the mean token count across all chunks.
+	Mean float64 `json:"mean"`
+	// P95 is the 95th percentile token count.
+	P95 int `json:"p95"`
 }
 
 // ErrorResponse represents an error response.
@@ -338,10 +383,42 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Fetch indexing coverage stats if debug mode is enabled
+		var indexingCoverage *IndexingCoverage
+		if h.indexerPipeline != nil && h.embeddingModelName != "" {
+			stats, err := h.indexerPipeline.GetIndexingCoverageStats(ctx, h.embeddingModelName)
+			if err != nil {
+				logger.WarnContext(ctx, "failed to get indexing coverage stats", "error", err)
+			} else if stats != nil {
+				// Convert indexer.IndexingCoverageStats to handlers.IndexingCoverage
+				var tokenStats *ChunkTokenStats
+				if stats.ChunkTokenStats.Min > 0 || stats.ChunkTokenStats.Max > 0 {
+					tokenStats = &ChunkTokenStats{
+						Min:  stats.ChunkTokenStats.Min,
+						Max:  stats.ChunkTokenStats.Max,
+						Mean: stats.ChunkTokenStats.Mean,
+						P95:  stats.ChunkTokenStats.P95,
+					}
+				}
+				indexingCoverage = &IndexingCoverage{
+					DocsProcessed:        stats.DocsProcessed,
+					DocsWith0Chunks:      stats.DocsWith0Chunks,
+					ChunksAttempted:      stats.ChunksAttempted,
+					ChunksEmbedded:       stats.ChunksEmbedded,
+					ChunksSkipped:        stats.ChunksSkipped,
+					ChunksSkippedReasons: stats.ChunksSkippedReasons,
+					ChunkTokenStats:      tokenStats,
+					ChunkerVersion:       stats.ChunkerVersion,
+					IndexVersion:         stats.IndexVersion,
+				}
+			}
+		}
+
 		resp.Debug = &DebugInfo{
-			RetrievedChunks: debugChunks,
-			FolderSelection: folderSelection,
-			Latency:         latency,
+			RetrievedChunks:  debugChunks,
+			FolderSelection:  folderSelection,
+			Latency:          latency,
+			IndexingCoverage: indexingCoverage,
 		}
 	}
 

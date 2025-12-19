@@ -682,13 +682,14 @@ The project uses go-swagger for API documentation. All endpoints are documented 
 
 For detailed patterns specific to each layer, see:
 
-- **Handlers:** `internal/handlers/AGENTS.md` - HTTP handler patterns, DTOs, Swagger documentation, RAG handler
+- **Handlers:** `internal/handlers/AGENTS.md` - HTTP handler patterns, DTOs, Swagger documentation, RAG handler, debug mode, abstention, latency tracking
 - **Service:** `internal/service/AGENTS.md` - Business logic, domain errors, validation
-- **RAG:** `internal/rag/AGENTS.md` - RAG engine patterns, question-answering workflow
+- **RAG:** `internal/rag/AGENTS.md` - RAG engine patterns, question-answering workflow, debug mode, abstention
 - **Storage:** `internal/storage/AGENTS.md` - Repository pattern, database operations, GetByID for RAG
 - **Vector Store:** `internal/vectorstore/AGENTS.md` - Vector database operations, semantic search
 - **Vault:** `internal/vault/AGENTS.md` - Vault management and file scanning
-- **Indexer:** `internal/indexer/AGENTS.md` - Markdown chunking and indexing pipeline
+- **Indexer:** `internal/indexer/AGENTS.md` - Markdown chunking and indexing pipeline, stable chunk IDs
 - **LLM:** `internal/llm/AGENTS.md` - External service client patterns (chat and embeddings)
 - **HTTP:** `internal/http/AGENTS.md` - Middleware, router setup, Swagger JSON serving
 - **Config:** `internal/config/AGENTS.md` - Configuration patterns and .env loading
+- **Evaluation:** `eval/AGENTS.md` - Evaluation framework patterns, metrics, scripts, and workflows

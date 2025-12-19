@@ -292,6 +292,8 @@ The API server serves:
 - Web UI at `http://localhost:9000/`
 - RAG API endpoint at `http://localhost:9000/api/v1/ask` (question-answering over indexed notes with intelligent folder selection + lexical reranking)
   - Supports `?debug=true` query parameter for detailed retrieval information (useful for evaluation frameworks)
+  - Debug mode includes: retrieved chunks with scores/ranks, latency breakdown (folder selection, retrieval, generation, judge), indexing coverage stats, and folder selection details
+  - Supports explicit abstention fields (`abstained`, `abstain_reason`) for evaluation frameworks
 - Index API endpoint at `http://localhost:9000/api/index` (trigger re-indexing)
 - Swagger JSON spec at `http://localhost:9000/api/docs/swagger.json`
 
@@ -689,10 +691,37 @@ The evaluation framework is located in the `eval/` directory and includes:
 python eval/scripts/label_eval.py --eval-set eval/eval_set.jsonl --api-url http://localhost:9000
 ```
 
-**Run Evaluation** (when `run_eval.py` is implemented):
+**Run Full Evaluation** (recommended - runs all scripts in correct order):
 
 ```bash
+# Full evaluation with judges
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --judge-model qwen2.5-14b
+
+# Retrieval-only (fast, no judge cost)
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --retrieval-only
+```
+
+**Run Individual Scripts** (for more control):
+
+```bash
+# Step 1: Run evaluation suite
 python eval/scripts/run_eval.py --eval-set eval/eval_set.jsonl --k 5
+
+# Step 2: Compute retrieval metrics
+python eval/scripts/score_retrieval.py --run-id <run_id> --eval-set eval/eval_set.jsonl
+
+# Step 3: Judge answers (optional)
+python eval/scripts/judge_answers.py --run-id <run_id> --judge-model qwen2.5-14b
+
+# Step 4: Compute abstention metrics
+python eval/scripts/score_abstention.py --run-id <run_id> --eval-set eval/eval_set.jsonl
+
+# Step 5: Compare runs
+python eval/scripts/compare_runs.py --run-id-1 <baseline> --run-id-2 <new_run>
 ```
 
 ### Evaluation Documentation
@@ -706,19 +735,25 @@ python eval/scripts/run_eval.py --eval-set eval/eval_set.jsonl --k 5
 
 **Completed:**
 
-- ✅ Stable chunk IDs (32-char hash) in Go API
-- ✅ Debug mode (`debug=true` query parameter) in `/api/v1/ask` endpoint
-- ✅ Core metrics documentation (`eval/EVAL.md`)
-- ✅ Initial eval set (`eval/eval_set.jsonl` with 50 test cases)
-- ✅ Results storage module (`eval/scripts/storage.py`)
-- ✅ Labeling workflow (`eval/scripts/label_eval.py`)
+- ✅ Stable chunk IDs (32-char hash) in Go API - deterministic IDs based on vault_id, rel_path, heading_path, and chunk_text
+- ✅ Debug mode (`debug=true` query parameter) in `/api/v1/ask` endpoint - returns detailed retrieval information including chunks, scores, ranks, and folder selection
+- ✅ Abstention fields (`abstained`, `abstain_reason`) in API response - explicit flags for when system cannot answer
+- ✅ Latency tracking - breakdown of folder_selection_ms, retrieval_ms, generation_ms, judge_ms in debug response
+- ✅ Indexing coverage stats - docs_processed, chunks_attempted/embedded/skipped, chunk_token_stats, chunker_version, index_version in debug response
+- ✅ Core metrics documentation (`eval/EVAL.md`) - comprehensive definitions of all metrics
+- ✅ Initial eval set (`eval/eval_set.jsonl` with 50 test cases) - frozen dataset with anchor-based gold supports
+- ✅ Results storage module (`eval/scripts/storage.py`) - structured storage with text truncation, latency/cost tracking
+- ✅ Labeling workflow (`eval/scripts/label_eval.py`) - interactive tool for marking gold supports
+- ✅ Evaluation runner (`run_eval.py`) - executes test suite with retrieval-only mode, latency/cost tracking
+- ✅ Retrieval metrics calculator (`score_retrieval.py`) - Recall@K (any/all), MRR, Precision@K, Scope Miss Rate, Attribution Hit Rate
+- ✅ Answer quality judges (`judge_answers.py`) - separate groundedness and correctness judges with caching
+- ✅ Abstention metrics calculator (`score_abstention.py`) - abstention accuracy and hallucination rate on unanswerable questions
+- ✅ Full evaluation pipeline (`run_full_eval.py`) - single entry point running all scripts in correct order
+- ✅ Run comparison tool (`compare_runs.py`) - compares two runs with invariant checking
+- ✅ Git strategy - results.jsonl gitignored, only metrics.json committed
 
-**In Progress:**
+**Pending:**
 
-- 🔄 Evaluation runner (`run_eval.py`)
-- 🔄 Retrieval metrics calculator (`score_retrieval.py`)
-- 🔄 Answer quality judges (`judge_answers.py`)
-- 🔄 Abstention metrics calculator (`score_abstention.py`)
-- 🔄 Run comparison tool (`compare_runs.py`)
+- ⏳ Regression gate - fail if key metrics drop below thresholds (configurable)
 
 See `.cursor/plans/chatbot_evaluation_framework_a914ccc3.plan.md` for the complete implementation plan.

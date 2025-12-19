@@ -2,6 +2,66 @@
 
 This directory contains Python scripts for the evaluation framework.
 
+## Full Evaluation Pipeline
+
+The `run_full_eval.py` script provides a single entry point that runs all evaluation scripts in the correct order:
+
+1. **run_eval.py** - Execute evaluation suite against Go API
+2. **score_retrieval.py** - Compute retrieval metrics (Recall@K, MRR, etc.)
+3. **judge_answers.py** - Judge answer quality (optional, if judge model provided)
+4. **score_abstention.py** - Compute abstention metrics
+
+### Usage
+
+```bash
+# Full evaluation with judges
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --judge-model qwen2.5-14b
+
+# Retrieval-only (fast, no judge cost)
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --retrieval-only
+
+# Custom configuration
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --k 10 \
+    --judge-model qwen2.5-14b \
+    --judge-base-url http://localhost:8081
+
+# Skip specific steps
+python eval/scripts/run_full_eval.py \
+    --eval-set eval/eval_set.jsonl \
+    --judge-model qwen2.5-14b \
+    --skip-retrieval-metrics \
+    --skip-abstention-metrics
+```
+
+### Pipeline Steps
+
+The pipeline automatically:
+- Runs the evaluation suite and captures results
+- Computes retrieval metrics (unless `--skip-retrieval-metrics`)
+- Judges answer quality if judge model is provided (unless `--retrieval-only` or `--skip-judges`)
+- Computes abstention metrics (unless `--skip-abstention-metrics`)
+- Outputs a summary with run ID and results location
+
+### Arguments
+
+The script accepts all arguments from the individual scripts:
+- **run_eval.py arguments**: `--api-url`, `--k`, `--rerank-vector-weight`, `--folder-mode`, `--retrieval-only`, etc.
+- **judge_answers.py arguments**: `--judge-model`, `--judge-base-url`, `--judge-temperature`, `--cache-dir`, etc.
+- **Control flags**: `--skip-retrieval-metrics`, `--skip-abstention-metrics`, `--skip-judges`
+
+### Output
+
+Results are stored in `eval/results/<run_id>/`:
+- `results.jsonl`: Individual test results with all metrics
+- `metrics.json`: Aggregated metrics across all tests
+- `config.json`: Run configuration snapshot
+
 ## Labeling Workflow
 
 The `label_eval.py` script provides an interactive workflow for marking gold_supports in test cases. This creates ground truth for retrieval metrics using anchor-based labeling (rel_path + heading_path) that is resilient to chunking changes.

@@ -36,6 +36,12 @@ func NewChunkRepo(db *sql.DB) *ChunkRepo {
 	return &ChunkRepo{db: db}
 }
 
+// DB returns the underlying database connection.
+// This is used for stats queries that need direct SQL access.
+func (r *ChunkRepo) DB() *sql.DB {
+	return r.db
+}
+
 // Insert inserts a single chunk into the database.
 // The chunk.ID must be set (UUID) before calling this method.
 func (r *ChunkRepo) Insert(ctx context.Context, chunk *ChunkRecord) error {
