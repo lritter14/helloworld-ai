@@ -65,6 +65,56 @@ def get_git_commit_hash(file_path: Path) -> Optional[str]:
         return None
 
 
+def load_env_file(project_root: Path) -> Dict[str, str]:
+    """
+    Load environment variables from .env file in project root.
+    
+    Returns a dictionary of key-value pairs from the .env file.
+    Handles basic .env file format (KEY=VALUE, ignores comments and empty lines).
+    """
+    env_vars = {}
+    env_path = project_root / ".env"
+    
+    if not env_path.exists():
+        return env_vars
+    
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                # Skip empty lines and comments
+                if not line or line.startswith("#"):
+                    continue
+                # Parse KEY=VALUE format
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip()
+                    # Remove quotes if present
+                    if value.startswith('"') and value.endswith('"'):
+                        value = value[1:-1]
+                    elif value.startswith("'") and value.endswith("'"):
+                        value = value[1:-1]
+                    env_vars[key] = value
+    except Exception as e:
+        print(f"Warning: Failed to load .env file: {e}", file=sys.stderr)
+    
+    return env_vars
+
+
+def find_project_root(start_path: Path) -> Optional[Path]:
+    """Find project root by looking for go.mod file."""
+    current = start_path.resolve()
+    for _ in range(10):  # Limit search depth
+        if (current / "go.mod").exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            break
+        current = parent
+    return None
+
+
 def compute_config_hash(config: RunConfig) -> str:
     """Compute hash of configuration for quick comparison."""
     config_dict = config.to_dict()
@@ -502,6 +552,11 @@ def main():
         type=str,
         help="Embedding model name (for config tracking)",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        help="Limit number of test cases to process (for faster iteration)",
+    )
 
     args = parser.parse_args()
 
@@ -511,10 +566,50 @@ def main():
         sys.exit(1)
 
     test_cases = load_eval_set(args.eval_set)
-    print(f"Loaded {len(test_cases)} test cases from {args.eval_set}")
+    total_test_cases = len(test_cases)
+    
+    # Apply limit if specified
+    if args.limit and args.limit > 0:
+        test_cases = test_cases[:args.limit]
+        print(f"Loaded {total_test_cases} test cases from {args.eval_set} (limiting to {len(test_cases)} for faster iteration)")
+    else:
+        print(f"Loaded {len(test_cases)} test cases from {args.eval_set}")
 
     # Get eval set commit hash
     eval_set_commit_hash = get_git_commit_hash(args.eval_set)
+
+    # Load model names from .env if not provided via CLI
+    llm_model = args.llm_model
+    embedding_model = args.embedding_model
+    
+    # Load from .env if either is missing
+    if not llm_model or not embedding_model:
+        # Find project root (where go.mod is)
+        script_dir = Path(__file__).parent
+        project_root = find_project_root(script_dir)
+        
+        # If project root not found, try looking for .env relative to script directory
+        # (go up a few levels from eval/scripts/ to find project root)
+        if not project_root:
+            # Try going up from eval/scripts/ to find .env
+            current = script_dir
+            for _ in range(5):  # Limit search depth
+                parent = current.parent
+                if (parent / ".env").exists():
+                    project_root = parent
+                    break
+                if parent == current:
+                    break
+                current = parent
+        
+        if project_root:
+            env_vars = load_env_file(project_root)
+            if not llm_model and "LLM_MODEL" in env_vars:
+                llm_model = env_vars["LLM_MODEL"]
+                print(f"Using LLM model from .env: {llm_model}")
+            if not embedding_model and "EMBEDDING_MODEL_NAME" in env_vars:
+                embedding_model = env_vars["EMBEDDING_MODEL_NAME"]
+                print(f"Using embedding model from .env: {embedding_model}")
 
     # Create run ID
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -524,8 +619,8 @@ def main():
         k=args.k,
         rerank_weights={"vector": args.rerank_vector_weight, "lexical": args.rerank_lexical_weight},
         folder_mode=args.folder_mode,
-        llm_model=args.llm_model,
-        embedding_model=args.embedding_model,
+        llm_model=llm_model,
+        embedding_model=embedding_model,
         judge_model=args.judge_model if not args.retrieval_only else None,
         judge_prompt_version=args.judge_prompt_version if not args.retrieval_only else None,
         judge_temperature=args.judge_temperature if not args.retrieval_only else 0.0,

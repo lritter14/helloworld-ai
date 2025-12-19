@@ -847,6 +847,9 @@ Examples:
   # Retrieval-only (fast, no judge cost)
   python eval/scripts/run_full_eval.py --eval-set eval/eval_set.jsonl --retrieval-only
 
+  # Limit to 10 test cases for faster iteration
+  python eval/scripts/run_full_eval.py --eval-set eval/eval_set.jsonl --limit 10 --judge-model qwen2.5-14b
+
   # Custom configuration
   python eval/scripts/run_full_eval.py \\
       --eval-set eval/eval_set.jsonl \\
@@ -927,6 +930,11 @@ Examples:
         "--embedding-model",
         type=str,
         help="Embedding model name (for config tracking)",
+    )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        help="Limit number of test cases to process (for faster iteration)",
     )
 
     # judge_answers.py arguments
@@ -1069,6 +1077,8 @@ Examples:
         run_eval_cmd.extend(["--llm-model", args.llm_model])
     if args.embedding_model:
         run_eval_cmd.extend(["--embedding-model", args.embedding_model])
+    if args.limit:
+        run_eval_cmd.extend(["--limit", str(args.limit)])
 
     # Extract run_id from run_eval output (we'll need to parse it)
     # For now, we'll use a timestamp-based approach or read from the latest run

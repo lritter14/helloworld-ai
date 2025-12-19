@@ -403,12 +403,20 @@ def extract_json_from_response(response: str) -> Dict[str, Any]:
     # Try to find JSON in markdown code blocks
     import re
 
+    # Check for truncation indicators
+    response_len = len(response)
+    is_truncated = False
+    
     # Look for JSON in ```json ... ``` blocks
     json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL)
     if json_match:
         try:
             return json.loads(json_match.group(1))
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            # Check if JSON appears truncated (ends mid-string or mid-array)
+            json_str = json_match.group(1)
+            if not json_str.rstrip().endswith('}') and not json_str.rstrip().endswith(']'):
+                is_truncated = True
             pass
 
     # Look for JSON object directly
@@ -416,14 +424,45 @@ def extract_json_from_response(response: str) -> Dict[str, Any]:
     if json_match:
         try:
             return json.loads(json_match.group(0))
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            # Check if JSON appears truncated
+            json_str = json_match.group(0)
+            if not json_str.rstrip().endswith('}') and not json_str.rstrip().endswith(']'):
+                is_truncated = True
             pass
 
     # If all else fails, try parsing the whole response
     try:
         return json.loads(response)
     except json.JSONDecodeError:
-        raise ValueError(f"Failed to extract JSON from response: {response[:500]}")
+        # Check if response appears truncated
+        trimmed = response.rstrip()
+        # Truncation indicators: ends with comma, unclosed quote (odd number of quotes at end),
+        # or doesn't end with proper JSON closing characters
+        ends_with_comma = trimmed.endswith(',')
+        # Count trailing quotes to detect unclosed strings
+        trailing_quotes = len(trimmed) - len(trimmed.rstrip('"'))
+        unclosed_string = trailing_quotes > 0 and trailing_quotes % 2 == 1
+        # Check for unmatched braces/brackets (simple heuristic)
+        open_braces = trimmed.count('{') - trimmed.count('}')
+        open_brackets = trimmed.count('[') - trimmed.count(']')
+        
+        if ends_with_comma or unclosed_string or (open_braces > 0 or open_brackets > 0):
+            is_truncated = True
+        
+        # Build error message with more context
+        error_msg = "Failed to extract JSON from response"
+        if is_truncated:
+            error_msg += " (response appears truncated - may have hit max_tokens limit)"
+        
+        # Show more of the response (up to 1000 chars) and indicate if there's more
+        preview_len = 1000
+        if len(response) > preview_len:
+            error_msg += f": {response[:preview_len]}... [truncated, total length: {len(response)} chars]"
+        else:
+            error_msg += f": {response}"
+        
+        raise ValueError(error_msg)
 
 
 def judge_groundedness(
@@ -483,9 +522,10 @@ def judge_groundedness(
     ]
 
     # Call judge
+    # Use higher max_tokens for groundedness since it can have long lists of unsupported_claims
     start_time = time.time()
     try:
-        response_text = judge_client.chat(messages, max_tokens=2000)
+        response_text = judge_client.chat(messages, max_tokens=4000)
         elapsed_ms = (time.time() - start_time) * 1000
 
         # Extract JSON from response
