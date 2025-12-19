@@ -1,0 +1,19 @@
+{
+  "run_id": "20251219_221906",
+  "timestamp": "2025-12-19T22:20:33.630726+00:00",
+  "aggregate_metrics": {
+    "operational_metrics": {
+      "error_rate": 0.0,
+      "timeout_rate": 0.0,
+      "empty_response_rate": 0.0,
+      "coverage_by_doc_type": {}
+    },
+    "latency": {
+      "p50_ms": 7722.8758335113525,
+      "p95_ms": 12885.118007659912,
+      "total_ms": 87499.82595443726
+    }
+  },
+  "config_hash": "30d892f7b2b3af17",
+  "eval_set_commit_hash": "ac49cfd38886e47465f766c8d2f35d03397dfb08"
+}

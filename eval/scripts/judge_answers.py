@@ -64,13 +64,20 @@ Answer: {answer}
 Retrieved Context:
 {context_chunks}
 
+{references_section}
+
 IMPORTANT:
 - Treat anything not present in context as unsupported, even if it's "common knowledge"
 - Penalize "confident tone" on unsupported claims
 - Score of 5 requires citations for all major claims (citation coverage is part of groundedness)
+- When evaluating citations, check:
+  1. Citations section at the bottom of the answer (look for "Citations:" followed by [File: ..., Section: ...] entries)
+  2. Inline citations in the answer text (e.g., [File: filename.md, Section: section name])
+  3. References provided below (which may include additional sources)
+- Citations should be in format [File: filename.md, Section: section name] matching the context provided
 
 Rate groundedness (0-5):
-- 5: All claims directly supported by context AND all major claims have citations
+- 5: All claims directly supported by context AND all major claims have citations (preferably in a Citations section at the bottom)
 - 4: Most claims supported with citations, minor unsupported details
 - 3: Some claims supported, some unsupported, or missing citations
 - 2: Major claims unsupported or missing citations
@@ -472,6 +479,7 @@ def judge_groundedness(
     prompt_version: str,
     cache: Optional[JudgeCache] = None,
     cache_key: Optional[str] = None,
+    references: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[GroundednessScore, CostTracking]:
     """
     Judge groundedness of an answer.
@@ -483,6 +491,7 @@ def judge_groundedness(
         prompt_version: Prompt version identifier
         cache: Optional judge cache
         cache_key: Optional cache key (if already computed)
+        references: Optional list of references from API response
 
     Returns:
         Tuple of (GroundednessScore, CostTracking)
@@ -513,8 +522,30 @@ def judge_groundedness(
         ]
     )
 
+    # Format references section if provided
+    references_section = ""
+    if references:
+        ref_lines = ["References cited in the answer:"]
+        for i, ref in enumerate(references, 1):
+            rel_path = ref.get("rel_path", "")
+            heading_path = ref.get("heading_path", "")
+            vault = ref.get("vault", "")
+            ref_line = f"  {i}. {rel_path}"
+            if heading_path:
+                ref_line += f" (Section: {heading_path})"
+            if vault:
+                ref_line += f" [Vault: {vault}]"
+            ref_lines.append(ref_line)
+        references_section = "\n".join(ref_lines) + "\n"
+    else:
+        references_section = "References: None provided\n"
+
     # Format prompt
-    prompt = GROUNDEDNESS_PROMPT_V1.format(answer=answer, context_chunks=context_text)
+    prompt = GROUNDEDNESS_PROMPT_V1.format(
+        answer=answer,
+        context_chunks=context_text,
+        references_section=references_section
+    )
 
     messages = [
         {"role": "system", "content": "You are an expert evaluator. Return only valid JSON."},
@@ -736,10 +767,11 @@ def judge_reliability_spot_check(
 
         # Re-judge with second judge (or same judge with slightly different prompt)
         try:
+            references = result.get("references", [])
             if second_judge:
                 # Use second judge model
                 re_groundedness, _ = judge_groundedness(
-                    answer, retrieved_chunks, second_judge, prompt_version
+                    answer, retrieved_chunks, second_judge, prompt_version, None, None, references=references
                 )
                 re_correctness, _ = judge_correctness(
                     question, answer, retrieved_chunks, second_judge, prompt_version
@@ -747,7 +779,7 @@ def judge_reliability_spot_check(
             else:
                 # Use same judge (will test consistency)
                 re_groundedness, _ = judge_groundedness(
-                    answer, retrieved_chunks, judge_client, prompt_version
+                    answer, retrieved_chunks, judge_client, prompt_version, None, None, references=references
                 )
                 re_correctness, _ = judge_correctness(
                     question, answer, retrieved_chunks, judge_client, prompt_version
@@ -838,9 +870,10 @@ def update_results_with_judges(
                 question, answer, context_hash, judge_client.model, prompt_version, "correctness"
             )
 
-            # Judge groundedness
+            # Judge groundedness (pass references if available)
+            references = result.get("references", [])
             groundedness, groundedness_cost = judge_groundedness(
-                answer, retrieved_chunks, judge_client, prompt_version, cache, groundedness_key
+                answer, retrieved_chunks, judge_client, prompt_version, cache, groundedness_key, references=references
             )
 
             # Judge correctness

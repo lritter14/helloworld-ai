@@ -603,11 +603,11 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		vaultName, _ := result.Meta["vault_name"].(string)
 		relPath, _ := result.Meta["rel_path"].(string)
 		headingPathMeta, _ := result.Meta["heading_path"].(string)
-		
+
 		var headingPath string
 		var chunkText string
 		var chunkIndex int
-		
+
 		if err != nil {
 			// Chunk not found in SQLite - use metadata from Qdrant
 			// This handles data consistency issues where chunks exist in Qdrant but not SQLite
@@ -615,13 +615,13 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 				"chunk_id", result.PointID,
 				"rel_path", relPath,
 				"error", err)
-			
+
 			headingPath = headingPathMeta
 			chunkText = "" // Text not available from Qdrant metadata
 			if chunkIndexFloat, ok := result.Meta["chunk_index"].(float64); ok {
 				chunkIndex = int(chunkIndexFloat)
 			}
-			
+
 			// Create a minimal chunk record for reranking
 			// Use empty text - lexical score will be 0, but we can still use vector score
 			chunk = &storage.ChunkRecord{
@@ -837,8 +837,16 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	// Construct LLM messages
 	systemPrompt := "You are a helpful assistant that answers questions based on the provided context from the user's notes. " +
-		"Answer the question using only the information from the context below. If the context doesn't contain " +
-		"enough information to answer the question, say so. Cite specific sections when possible."
+		"Answer the question using only the information from the context below. " +
+		"CRITICAL: You MUST cite all major claims and factual statements using the exact format '[File: filename.md, Section: section name]' where the filename and section name match the context provided. " +
+		"Do NOT make any unsupported claims - if information is not in the context, explicitly state that it is not available. " +
+		"If the context doesn't contain enough information to answer the question, say so clearly. " +
+		"REQUIRED: At the END of your answer, you MUST include a 'Citations:' section listing all sources used. " +
+		"Example format:\n" +
+		"Citations:\n" +
+		"[File: Software/LeetCode Tips.md, Section: Golang Tips & Oddities]\n" +
+		"[File: Software/Data Structures & Algorithms/Hash Tables.md, Section: Designing a HashMap]\n" +
+		"Every significant fact or claim in your answer must be supported by at least one citation in this format."
 
 	userMessage := fmt.Sprintf("%s\n\n%s", req.Question, contextString)
 
@@ -944,7 +952,7 @@ func (e *ragEngine) buildDebugInfo(
 		for rank := 0; rank < limit; rank++ {
 			candidate := candidates[rank]
 			chunkText := candidate.chunk.Text
-			
+
 			// Fallback: if text is empty, try to fetch from database
 			// This handles cases where chunks might have been stored without text
 			if chunkText == "" {
@@ -956,7 +964,7 @@ func (e *ragEngine) buildDebugInfo(
 					}
 				}
 			}
-			
+
 			retrievedChunks = append(retrievedChunks, RetrievedChunk{
 				ChunkID:      candidate.result.PointID,
 				RelPath:      candidate.relPath,
@@ -985,7 +993,7 @@ func (e *ragEngine) buildDebugInfo(
 			result := deduplicated[rank]
 			relPath, _ := result.Meta["rel_path"].(string)
 			headingPath, _ := result.Meta["heading_path"].(string)
-			
+
 			// Try to fetch chunk text from database
 			chunkText := ""
 			if chunk, err := e.chunkRepo.GetByID(ctx, result.PointID); err == nil {
@@ -995,13 +1003,13 @@ func (e *ragEngine) buildDebugInfo(
 					"chunk_id", result.PointID,
 					"error", err)
 			}
-			
+
 			retrievedChunks = append(retrievedChunks, RetrievedChunk{
 				ChunkID:      result.PointID,
 				RelPath:      relPath,
 				HeadingPath:  headingPath,
 				ScoreVector:  float64(result.Score),
-				ScoreLexical: 0, // Not computed yet (requires chunk text)
+				ScoreLexical: 0,                     // Not computed yet (requires chunk text)
 				ScoreFinal:   float64(result.Score), // Use vector score as final when no lexical score
 				Text:         chunkText,
 				Rank:         rank + 1,
@@ -1065,7 +1073,7 @@ func (e *ragEngine) buildDebugInfo(
 		Latency: &LatencyBreakdown{
 			FolderSelectionMs: folderSelectionMs,
 			RetrievalMs:       retrievalMs,
-			GenerationMs:     generationMs,
+			GenerationMs:      generationMs,
 			JudgeMs:           0, // Judging happens in Python, not Go
 			TotalMs:           totalMs,
 		},

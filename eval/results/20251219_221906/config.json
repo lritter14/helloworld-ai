@@ -1,0 +1,18 @@
+{
+  "k": 5,
+  "rerank_weights": {
+    "vector": 0.7,
+    "lexical": 0.3
+  },
+  "folder_mode": "on_with_fallback",
+  "llm_model": "Qwen2.5-3B-Instruct-Q4_K_M",
+  "embedding_model": "ggml-org_embeddinggemma-300M-GGUF_embeddinggemma-300M-Q8_0",
+  "judge_model": "Qwen2.5-3B-Instruct-Q4_K_M",
+  "judge_prompt_version": "v1.0",
+  "judge_temperature": 0.0,
+  "dataset_version": "ac49cfd38886e47465f766c8d2f35d03397dfb08",
+  "index_build_version": null,
+  "retriever_version": null,
+  "answerer_version": null,
+  "eval_set_commit_hash": "ac49cfd38886e47465f766c8d2f35d03397dfb08"
+}

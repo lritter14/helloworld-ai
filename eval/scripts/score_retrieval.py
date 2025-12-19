@@ -113,7 +113,9 @@ def matches_gold_support(
         return False
 
     # If snippets are provided, check that at least one appears in chunk text
-    if gold_snippets:
+    # However, if chunk_text is empty (e.g., from citations), skip snippet check
+    # This allows attribution hit to work even when we only have path/heading info
+    if gold_snippets and chunk_text:
         chunk_text_lower = chunk_text.lower()
         for snippet in gold_snippets:
             if snippet.lower() in chunk_text_lower:
@@ -121,7 +123,7 @@ def matches_gold_support(
         # If snippets provided but none match, it's not a match
         return False
 
-    # If no snippets provided, match is valid if rel_path and heading_path match
+    # If no snippets provided, or chunk_text is empty, match is valid if rel_path and heading_path match
     return True
 
 
@@ -368,13 +370,143 @@ def compute_scope_miss(
     return True
 
 
+def extract_citations_from_answer(answer: str) -> List[Dict[str, str]]:
+    """
+    Extract citations from answer text in various formats.
+    
+    Prioritizes citations in a "Citations:" section at the bottom of the answer,
+    but also extracts citations from anywhere in the answer text.
+    
+    Handles multiple citation formats that LLMs might use:
+    - [File: filename.md, Section: section name]
+    - [File: path/to/filename.md, Section: section name]
+    - ['File: filename.md, Section: section name']
+    - [filename.md, Section: section name]
+    - (File: filename.md, Section: section name)
+    - File: filename.md, Section: section name (without brackets)
+    
+    Args:
+        answer: Answer text from LLM
+        
+    Returns:
+        List of citation dicts with 'rel_path' and 'heading_path' keys (no duplicates)
+        Citations from "Citations:" section are prioritized and appear first
+    """
+    import re
+    
+    citations = []
+    seen = set()  # Track seen citations to avoid duplicates
+    citations_section_citations = []  # Citations from bottom section
+    
+    def normalize_citation(file_path: str, section: str) -> tuple:
+        """Normalize citation for deduplication."""
+        file_norm = file_path.strip().strip("'\" ")
+        # Remove "File:" prefix if present
+        if file_norm.lower().startswith("file:"):
+            file_norm = file_norm[5:].strip()
+        section_norm = section.strip().strip("'\" ])")  # Also strip closing brackets/parentheses
+        return (file_norm, section_norm)
+    
+    def add_citation(file_path: str, section: str, from_citations_section: bool = False):
+        """Add citation if not already seen."""
+        citation_key = normalize_citation(file_path, section)
+        if citation_key not in seen:
+            seen.add(citation_key)
+            citation_dict = {
+                'rel_path': citation_key[0],
+                'heading_path': citation_key[1]
+            }
+            if from_citations_section:
+                citations_section_citations.append(citation_dict)
+            else:
+                citations.append(citation_dict)
+    
+    # First, check for "Citations:" section at the bottom
+    citations_section_match = re.search(
+        r'(?:^|\n)\s*Citations?\s*:?\s*\n(.*?)(?:\n\n|\n[A-Z]|\Z)',
+        answer,
+        re.IGNORECASE | re.DOTALL
+    )
+    citations_section_text = ""
+    if citations_section_match:
+        citations_section_text = citations_section_match.group(1)
+    
+    # Extract citations from Citations section first (prioritized)
+    if citations_section_text:
+        # Pattern for Citations section: [File: path/to/file.md, Section: Section Name]
+        pattern_citations = r'\[File:\s*([^,\]]+?),\s*Section:\s*([^\]]+?)\]'
+        matches_citations = re.findall(pattern_citations, citations_section_text, re.IGNORECASE)
+        for file_path, section in matches_citations:
+            add_citation(file_path, section, from_citations_section=True)
+        
+        # Also check for format without "File:" prefix
+        pattern_citations_alt = r'\[([^,\]]+?\.md),\s*Section:\s*([^\]]+?)\]'
+        matches_citations_alt = re.findall(pattern_citations_alt, citations_section_text, re.IGNORECASE)
+        for file_path, section in matches_citations_alt:
+            add_citation(file_path, section, from_citations_section=True)
+    
+    # Pattern 1: [File: path/to/file.md, Section: Section Name]
+    # Most common format - be careful not to match nested brackets
+    # But exclude if it's inside quotes (handled by pattern2) and not in Citations section
+    pattern1 = r"(?<!['\"])\[File:\s*([^,\]]+?),\s*Section:\s*([^\]]+?)\](?!['\"])"
+    matches1 = re.findall(pattern1, answer, re.IGNORECASE)
+    for file_path, section in matches1:
+        # Skip if this is in the Citations section (already captured)
+        if citations_section_text and citations_section_match:
+            citation_pos = answer.find(f"[File: {file_path}, Section: {section}]")
+            if citation_pos >= citations_section_match.start():
+                continue  # Already captured in Citations section
+        add_citation(file_path, section)
+    
+    # Pattern 2: ['File: path/to/file.md, Section: Section Name'] (with outer quotes)
+    # Match only if entire citation is quoted - capture the quote type and ensure proper closing
+    for quote_char in ["'", '"']:
+        pattern2 = re.escape(quote_char) + r"\[File:\s*([^,\]]+?),\s*Section:\s*([^\]]+?)\]" + re.escape(quote_char)
+        matches2 = re.findall(pattern2, answer, re.IGNORECASE)
+        for file_path, section in matches2:
+            add_citation(file_path, section)
+    
+    # Pattern 3: [path/to/file.md, Section: Section Name] (without "File:" prefix)
+    # Only match if it looks like a file path (ends with .md) and has Section:
+    pattern3 = r'\[([^,\]]+?\.md),\s*Section:\s*([^\]]+?)\]'
+    matches3 = re.findall(pattern3, answer, re.IGNORECASE)
+    for file_path, section in matches3:
+        add_citation(file_path, section)
+    
+    # Pattern 4: (File: path/to/file.md, Section: Section Name) (parentheses instead of brackets)
+    pattern4 = r'\(File:\s*([^,)]+?),\s*Section:\s*([^)]+?)\)'
+    matches4 = re.findall(pattern4, answer, re.IGNORECASE)
+    for file_path, section in matches4:
+        add_citation(file_path, section)
+    
+    # Pattern 5: File: path/to/file.md, Section: Section Name (without brackets/parentheses)
+    # Only match if it's at the end of a sentence or line, and not already captured
+    pattern5 = r'(?<![\[\(])File:\s*([^,\n]+?\.md),\s*Section:\s*([^\n\.]+?)(?:\.|$|\n)'
+    matches5 = re.findall(pattern5, answer, re.IGNORECASE)
+    for file_path, section in matches5:
+        # Skip if this is in the Citations section (already captured)
+        if citations_section_text and citations_section_match:
+            citation_pos = answer.find(f"File: {file_path}, Section: {section}")
+            if citation_pos >= citations_section_match.start():
+                continue  # Already captured in Citations section
+        add_citation(file_path, section)
+    
+    # Return citations section citations first (prioritized), then others
+    return citations_section_citations + citations
+
+
 def compute_attribution_hit(
     references: List[Dict[str, Any]],
     gold_supports: List[Dict[str, Any]],
     answerable: bool,
+    answer_text: Optional[str] = None,
 ) -> bool:
     """
     Compute attribution hit - did final cited references include at least one matching gold_support?
+
+    Checks both:
+    1. References field from API response
+    2. Citations extracted from answer text (if provided)
 
     Only computed for answerable questions.
 
@@ -382,40 +514,65 @@ def compute_attribution_hit(
         references: List of references from answer (from API response)
         gold_supports: List of gold support anchors
         answerable: Whether question is answerable
+        answer_text: Optional answer text to extract citations from
 
     Returns:
-        True if any reference matches a gold support, False otherwise
+        True if any reference or citation matches a gold support, False otherwise
     """
     if not answerable:
         # Not computed for unanswerable questions
         return False
 
-    if not references:
-        # No references cited
-        return False
+    # Check references field from API response
+    if references:
+        for ref in references:
+            # Extract rel_path and heading_path from reference
+            # Reference format: vault, rel_path, heading_path, chunk_index
+            ref_rel_path = ref.get("rel_path", "").strip()
+            ref_heading_path = ref.get("heading_path", "")
+            ref_text = ""  # References don't include text, only metadata
 
-    # Check each reference against gold supports
-    for ref in references:
-        # Extract rel_path and heading_path from reference
-        # Reference format: vault, rel_path, heading_path, chunk_index
-        ref_rel_path = ref.get("rel_path", "")
-        ref_heading_path = ref.get("heading_path", "")
-        ref_text = ""  # References don't include text, only metadata
+            for gold_support in gold_supports:
+                gold_rel_path = gold_support.get("rel_path", "").strip()
+                gold_heading_path = gold_support.get("heading_path", "")
+                gold_snippets = gold_support.get("snippets")
 
-        for gold_support in gold_supports:
-            gold_rel_path = gold_support.get("rel_path", "")
-            gold_heading_path = gold_support.get("heading_path", "")
-            gold_snippets = gold_support.get("snippets")
+                # Use matches_gold_support which handles normalization
+                if matches_gold_support(
+                    ref_rel_path,
+                    ref_heading_path,
+                    ref_text,
+                    gold_rel_path,
+                    gold_heading_path,
+                    gold_snippets,
+                ):
+                    return True
 
-            if matches_gold_support(
-                ref_rel_path,
-                ref_heading_path,
-                ref_text,
-                gold_rel_path,
-                gold_heading_path,
-                gold_snippets,
-            ):
-                return True
+    # Check citations extracted from answer text
+    if answer_text:
+        citations = extract_citations_from_answer(answer_text)
+        for citation in citations:
+            cit_rel_path = citation.get("rel_path", "").strip()
+            cit_heading_path = citation.get("heading_path", "")
+
+            for gold_support in gold_supports:
+                gold_rel_path = gold_support.get("rel_path", "").strip()
+                gold_heading_path = gold_support.get("heading_path", "")
+                gold_snippets = gold_support.get("snippets")
+
+                # Use matches_gold_support which handles all normalization
+                # For citations, we don't have chunk text, so pass empty string
+                # matches_gold_support will handle the case where snippets are provided
+                # but text is empty (it will skip snippet check)
+                if matches_gold_support(
+                    cit_rel_path,
+                    cit_heading_path,
+                    "",  # No chunk text available for citations
+                    gold_rel_path,
+                    gold_heading_path,
+                    gold_snippets,
+                ):
+                    return True
 
     return False
 
@@ -467,8 +624,9 @@ def compute_retrieval_metrics_for_test(
         retrieved_chunks, gold_supports, folder_mode, folder_selection_info
     )
 
-    # Compute Attribution Hit
-    attribution_hit = compute_attribution_hit(references, gold_supports, answerable)
+    # Compute Attribution Hit (pass answer text to extract citations)
+    answer_text = test_result.get("answer", "")
+    attribution_hit = compute_attribution_hit(references, gold_supports, answerable, answer_text=answer_text)
 
     return RetrievalMetrics(
         recall_at_k=recall_at_k,
