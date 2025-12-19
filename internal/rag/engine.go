@@ -837,6 +837,7 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	// Construct LLM messages
 	systemPrompt := "You are a helpful assistant that answers questions based on the provided context from the user's notes. " +
+		"Your primary goal is to provide accurate, complete answers to the question. " +
 		"Answer the question using only the information from the context below. " +
 		"CRITICAL: You MUST cite all major claims and factual statements using the exact format '[File: filename.md, Section: section name]' where the filename and section name match the context provided. " +
 		"Do NOT make any unsupported claims - if information is not in the context, explicitly state that it is not available. " +
@@ -846,7 +847,7 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 		"Citations:\n" +
 		"[File: Software/LeetCode Tips.md, Section: Golang Tips & Oddities]\n" +
 		"[File: Software/Data Structures & Algorithms/Hash Tables.md, Section: Designing a HashMap]\n" +
-		"Every significant fact or claim in your answer must be supported by at least one citation in this format."
+		"Remember: Answer quality comes first, but citations are required for all major claims."
 
 	userMessage := fmt.Sprintf("%s\n\n%s", req.Question, contextString)
 
@@ -871,7 +872,7 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	answer, err := e.llmClient.ChatWithMessages(ctx, messages, llm.ChatParams{
 		Model:       "", // Use default from client
 		MaxTokens:   0,  // No limit
-		Temperature: 0.7,
+		Temperature: 0.3, // Lower temperature for more focused, citation-aware responses with less hallucination
 	})
 	if err != nil {
 		logger.ErrorContext(ctx, "failed to get LLM response", "error", err)
