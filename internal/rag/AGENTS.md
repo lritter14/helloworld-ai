@@ -118,11 +118,19 @@ type Reference struct {
    ```text
    --- Context from notes ---
    
+   [Chunk 1]
    [Vault: personal] File: projects/meeting-notes.md
    Section: # Meetings > ## Weekly Standup
    Content: [chunk text here]
    
+   [Chunk 2]
+   [Vault: personal] File: projects/meeting-notes.md
+   Section: # Meetings > ## Daily Standup
+   Content: [chunk text here]
+   
    --- End Context ---
+   
+   When citing sources, use the format '[File: filename.md, Section: section name]' matching the exact filename and section name from the context above.
    ```
 
 8. **Call LLM:**
@@ -136,7 +144,11 @@ type Reference struct {
    ```
 
 9. **Build References:**
-   Extract metadata from search results to build reference list
+   - Extract citations from LLM answer using `extractCitationsFromAnswer()` method
+   - Parse citations in format `[File: filename.md, Section: section name]` from the answer
+   - Match cited files and sections to chunks to build references for only cited chunks
+   - Fall back to all chunks if no citations found (backward compatibility)
+   - This ensures references align with actual citations, improving Attribution Hit Rate
 
 10. **Collect Debug Information (if requested):**
     - If `req.Debug` is true, build debug info from retrieval results

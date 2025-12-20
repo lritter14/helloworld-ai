@@ -7,10 +7,10 @@ todos:
     status: completed
   - id: extract-citations-from-answer
     content: "Implement extractCitationsFromAnswer() method to parse citations from LLM answer and filter references to only include cited chunks. Replace current reference building logic (lines 879-888) that includes all chunks. Method should match filename and section names mentioned in answer. Fall back to all chunks if no citations found (backward compatibility). Expected impact: Significantly improves Attribution Hit Rate by aligning references with actual citations."
-    status: pending
+    status: completed
   - id: number-chunks-in-context
     content: "Improve context formatting to number chunks and add citation instructions. Update context building (lines 815-823) to prefix each chunk with [Chunk N] and add citation guidance at end. This makes it easier for LLM to reference specific chunks. Expected impact: Improves Groundedness and Attribution Hit Rate by making citations easier and more consistent."
-    status: pending
+    status: completed
   - id: add-citation-validation
     content: "Add post-generation validation to check if answer contains citations. After LLM response (after line 874), validate that answer mentions at least one filename from provided chunks. Log warning if no citations found despite having context chunks. Expected impact: Improves observability for Groundedness issues, helps identify cases where citations are missing."
     status: pending

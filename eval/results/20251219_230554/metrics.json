@@ -1,0 +1,26 @@
+{
+  "run_id": "20251219_230554",
+  "timestamp": "2025-12-19T23:06:14.004915+00:00",
+  "aggregate_metrics": {
+    "operational_metrics": {
+      "error_rate": 0.0,
+      "timeout_rate": 0.0,
+      "empty_response_rate": 0.0,
+      "coverage_by_doc_type": {}
+    },
+    "latency": {
+      "p50_ms": 1623.0530738830566,
+      "p95_ms": 3592.6883220672607,
+      "total_ms": 19156.333684921265
+    },
+    "recall_at_k_avg": 0.1,
+    "mrr_avg": 0.05,
+    "precision_at_k_avg": 0.02,
+    "scope_miss_rate": 0.8,
+    "attribution_hit_rate": 0.2,
+    "groundedness_avg": 2.8,
+    "correctness_avg": 4.0
+  },
+  "config_hash": "6329e097fc497a59",
+  "eval_set_commit_hash": "5a105241ba75c516a0a118cb8ce62c7cf7c5c87f"
+}

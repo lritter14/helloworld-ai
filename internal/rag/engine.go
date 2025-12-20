@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -340,6 +341,388 @@ Your response (JSON array only):`, question, folderList)
 	)
 
 	return orderedFolders
+}
+
+// chunkData represents a chunk with its metadata for context formatting and citation extraction.
+type chunkData struct {
+	text        string
+	vaultName   string
+	relPath     string
+	headingPath string
+	chunkIndex  int
+	result      vectorstore.SearchResult
+}
+
+// normalizePath normalizes a file path for comparison by:
+// - Removing trailing slashes
+// - Normalizing path separators
+// - Converting to lowercase for case-insensitive comparison
+func normalizePath(path string) string {
+	normalized := strings.TrimSpace(path)
+	normalized = filepath.Clean(normalized)
+	normalized = strings.ToLower(normalized)
+	return normalized
+}
+
+// matchFilePath attempts to match a cited file path against a chunk's file path using multiple strategies:
+// 1. Exact match after normalization
+// 2. Basename matching (only if one path has no directory components)
+// 3. Path component matching (split by "/" and compare components)
+// 4. Suffix matching (chunk path ends with cited path)
+func matchFilePath(citedPath, chunkPath string) bool {
+	// Normalize both paths
+	normalizedCited := normalizePath(citedPath)
+	normalizedChunk := normalizePath(chunkPath)
+
+	// Strategy 1: Exact match after normalization
+	if normalizedCited == normalizedChunk {
+		return true
+	}
+
+	// Strategy 2: Basename matching
+	// This handles cases like "file.md" matching "folder/file.md" or vice versa
+	citedBasename := strings.ToLower(filepath.Base(citedPath))
+	chunkBasename := strings.ToLower(filepath.Base(chunkPath))
+	if citedBasename == chunkBasename && citedBasename != "" {
+		// Allow basename match if:
+		// - Cited path has no directory (e.g., "file.md" matches "folder/file.md")
+		// - Chunk path has no directory (e.g., "folder/file.md" matches "file.md")
+		// - Chunk path ends with cited path (e.g., "parent/folder/file.md" matches "folder/file.md")
+		if !strings.Contains(citedPath, "/") ||
+			!strings.Contains(chunkPath, "/") ||
+			strings.HasSuffix(normalizedChunk, "/"+normalizedCited) {
+			return true
+		}
+	}
+
+	// Strategy 3: Path component matching
+	// Split both paths and compare components
+	citedParts := strings.Split(normalizedCited, "/")
+	chunkParts := strings.Split(normalizedChunk, "/")
+
+	// Check if cited path components match the end of chunk path
+	// Only if cited path has at least 2 components (directory + file)
+	if len(citedParts) >= 2 && len(citedParts) <= len(chunkParts) {
+		chunkEnd := chunkParts[len(chunkParts)-len(citedParts):]
+		match := true
+		for i, part := range citedParts {
+			if part != chunkEnd[i] {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+
+	// Strategy 4: Check if chunk path ends with cited path
+	// This handles cases like "folder/file.md" matching "parent/folder/file.md"
+	if strings.HasSuffix(normalizedChunk, "/"+normalizedCited) ||
+		strings.HasSuffix(normalizedChunk, normalizedCited) {
+		return true
+	}
+
+	return false
+}
+
+// normalizeSection normalizes a section name for comparison by:
+// - Removing markdown heading markers (#, ##, ###)
+// - Trimming whitespace
+// - Converting to lowercase
+// - Removing special characters for fuzzy matching
+func normalizeSection(section string) string {
+	normalized := strings.TrimSpace(section)
+	// Remove markdown heading markers
+	for strings.HasPrefix(normalized, "#") {
+		normalized = strings.TrimPrefix(normalized, "#")
+		normalized = strings.TrimSpace(normalized)
+	}
+	normalized = strings.ToLower(normalized)
+	return normalized
+}
+
+// tokenizeSection splits a section string into tokens (words) for token-based matching.
+func tokenizeSection(section string) map[string]bool {
+	normalized := normalizeSection(section)
+	// Split by whitespace and common separators
+	tokens := strings.FieldsFunc(normalized, func(r rune) bool {
+		return r == ' ' || r == '-' || r == '_' || r == '>' || r == '|'
+	})
+	tokenSet := make(map[string]bool, len(tokens))
+	for _, token := range tokens {
+		// Remove empty tokens and very short tokens
+		if len(token) > 1 {
+			tokenSet[token] = true
+		}
+	}
+	return tokenSet
+}
+
+// matchSection attempts to match a cited section against a chunk's heading path using multiple strategies:
+// 1. Exact match after normalization
+// 2. Contains matching (bidirectional, but require minimum length)
+// 3. Token-based matching (split into words, check overlap)
+// 4. Handle notion-id cases (if heading path is notion-id, try partial matching)
+func matchSection(citedSection, headingPath string) bool {
+	// Normalize both
+	normalizedCited := normalizeSection(citedSection)
+	normalizedHeading := normalizeSection(headingPath)
+
+	// Strategy 1: Exact match after normalization
+	if normalizedCited == normalizedHeading {
+		return true
+	}
+
+	// Strategy 2: Contains matching (bidirectional, but require minimum length to avoid false positives)
+	// Only match if the shorter string is at least 3 characters and is contained in the longer
+	if len(normalizedCited) >= 3 && len(normalizedHeading) >= 3 {
+		citedWords := strings.Fields(normalizedCited)
+		headingWords := strings.Fields(normalizedHeading)
+
+		// Check contains match
+		if strings.Contains(normalizedHeading, normalizedCited) ||
+			strings.Contains(normalizedCited, normalizedHeading) {
+			// If both are single words, require exact match (already checked above)
+			if len(citedWords) == 1 && len(headingWords) == 1 {
+				// Single word match already handled by exact match above
+				return false
+			}
+			// If one is a single word contained in the other, allow it
+			if len(citedWords) == 1 || len(headingWords) == 1 {
+				return true
+			}
+			// If both have multiple words, require significant overlap (handled by token matching below)
+			// But also allow if shorter is substantial portion of longer
+			shorter := normalizedCited
+			longer := normalizedHeading
+			if len(normalizedCited) > len(normalizedHeading) {
+				shorter = normalizedHeading
+				longer = normalizedCited
+			}
+			// Allow if shorter is at least 60% of longer (to avoid "Section One" matching "Section Two")
+			if len(shorter)*10 >= len(longer)*6 {
+				return true
+			}
+		}
+	}
+
+	// Strategy 3: Token-based matching
+	citedTokens := tokenizeSection(citedSection)
+	headingTokens := tokenizeSection(headingPath)
+
+	// Count overlapping tokens
+	overlapCount := 0
+	for token := range citedTokens {
+		if headingTokens[token] {
+			overlapCount++
+		}
+	}
+
+	// If significant overlap, consider it a match
+	// Require at least 2 tokens in both sets to avoid single-word false matches
+	if len(citedTokens) >= 2 && len(headingTokens) >= 2 {
+		minTokens := len(citedTokens)
+		if len(headingTokens) < minTokens {
+			minTokens = len(headingTokens)
+		}
+		// Require at least 2 overlapping tokens AND at least 60% overlap of the shorter set
+		// This prevents "Section One" from matching "Section Two" (only 1/2 = 50% overlap)
+		if overlapCount >= 2 && minTokens > 0 && overlapCount*10 >= minTokens*6 {
+			return true
+		}
+	}
+
+	// Strategy 4: Handle notion-id cases
+	// If heading path contains "notion-id:", try to match against the section name more flexibly
+	if strings.Contains(strings.ToLower(headingPath), "notion-id:") {
+		// For notion-ids, we can't match by ID, but we can try to match if the cited section
+		// appears anywhere in the heading path (already covered by contains match above)
+		// Or if there's significant token overlap (already covered above)
+		// This is a fallback that might help in some cases
+	}
+
+	return false
+}
+
+// extractCitationsFromAnswer parses citations from the LLM answer and returns references
+// for only the chunks that were actually cited. Citations are expected in the format:
+// [File: filename.md, Section: section name]
+func (e *ragEngine) extractCitationsFromAnswer(ctx context.Context, answer string, chunks []chunkData) []Reference {
+	logger := contextutil.LoggerFromContext(ctx)
+
+	// Find all citation patterns in the answer
+	// Pattern: [File: filename.md, Section: section name]
+	citedFiles := make(map[string]map[string]bool) // filename -> section -> true
+
+	// Split answer into lines to look for citations
+	lines := strings.Split(answer, "\n")
+	for _, line := range lines {
+		// Look for [File: ...] pattern - handle variations in format
+		// Check for both "[File:" and "Section:" in the line (case-insensitive)
+		lineLower := strings.ToLower(line)
+		if strings.Contains(lineLower, "[file:") && strings.Contains(lineLower, "section:") {
+			// Find all citations in this line (may have multiple)
+			lineRemaining := line
+			for {
+				// Find the start of [File:
+				fileStart := strings.Index(strings.ToLower(lineRemaining), "[file:")
+				if fileStart == -1 {
+					break
+				}
+
+				// Find the matching closing bracket
+				citationEnd := -1
+				bracketCount := 0
+				for i := fileStart; i < len(lineRemaining); i++ {
+					if lineRemaining[i] == '[' {
+						bracketCount++
+					} else if lineRemaining[i] == ']' {
+						bracketCount--
+						if bracketCount == 0 {
+							citationEnd = i + 1
+							break
+						}
+					}
+				}
+
+				if citationEnd == -1 {
+					break
+				}
+
+				// Extract citation text (skip "[File:" prefix)
+				citationText := lineRemaining[fileStart+6 : citationEnd-1] // Skip "[File:" and closing "]"
+
+				// Parse "filename, Section: section name" - handle variations
+				// Try different separators and formats
+				var filename, sectionName string
+				parts := strings.SplitN(citationText, ", Section:", 2)
+				if len(parts) == 2 {
+					filename = strings.TrimSpace(parts[0])
+					sectionName = strings.TrimSpace(parts[1])
+				} else {
+					// Try with different case
+					parts = strings.SplitN(citationText, ", section:", 2)
+					if len(parts) == 2 {
+						filename = strings.TrimSpace(parts[0])
+						sectionName = strings.TrimSpace(parts[1])
+					} else {
+						// Try with colon separator
+						parts = strings.SplitN(citationText, ":", 2)
+						if len(parts) == 2 {
+							filename = strings.TrimSpace(parts[0])
+							sectionName = strings.TrimSpace(parts[1])
+						}
+					}
+				}
+
+				if filename != "" && sectionName != "" {
+					// Store original values (normalization happens during matching)
+					// Use original filename as key to preserve path information
+					if citedFiles[filename] == nil {
+						citedFiles[filename] = make(map[string]bool)
+					}
+					citedFiles[filename][sectionName] = true
+				}
+
+				// Continue searching in the rest of the line
+				lineRemaining = lineRemaining[citationEnd:]
+			}
+		}
+	}
+
+	// Log citations found
+	if len(citedFiles) == 0 {
+		logger.DebugContext(ctx, "no citations found in answer")
+		return nil
+	}
+
+	citationCount := 0
+	for _, sections := range citedFiles {
+		citationCount += len(sections)
+	}
+	logger.DebugContext(ctx, "citations extracted from answer",
+		"citations_found", citationCount,
+		"unique_files", len(citedFiles))
+
+	// Match cited files and sections to chunks
+	references := make([]Reference, 0)
+	matchedCitations := make(map[string]bool) // Track which citations were matched
+
+	for _, chunk := range chunks {
+		// Check if this chunk's file and section match any citation
+		var matchedFile string
+		var matchedSection string
+		var matchStrategy string
+
+		// Try to match filename using improved matching
+		for citedFile := range citedFiles {
+			if matchFilePath(citedFile, chunk.relPath) {
+				matchedFile = citedFile
+				matchStrategy = "file_path"
+
+				// Check if section matches using improved matching
+				for citedSection := range citedFiles[citedFile] {
+					// Skip if this is the normalized version (we'll check the original)
+					if matchSection(citedSection, chunk.headingPath) {
+						matchedSection = citedSection
+						matchStrategy = "file_path+section"
+						break
+					}
+				}
+				if matchedSection != "" {
+					break
+				}
+			}
+		}
+
+		if matchedFile != "" && matchedSection != "" {
+			references = append(references, Reference{
+				Vault:       chunk.vaultName,
+				RelPath:     chunk.relPath,
+				HeadingPath: chunk.headingPath,
+				ChunkIndex:  chunk.chunkIndex,
+			})
+			matchedCitations[matchedFile+":"+matchedSection] = true
+
+			logger.DebugContext(ctx, "citation matched",
+				"chunk_path", chunk.relPath,
+				"chunk_section", chunk.headingPath,
+				"cited_file", matchedFile,
+				"cited_section", matchedSection,
+				"strategy", matchStrategy)
+		} else {
+			// Log failed match attempts
+			logger.DebugContext(ctx, "citation not matched",
+				"chunk_path", chunk.relPath,
+				"chunk_section", chunk.headingPath,
+				"reason", func() string {
+					if matchedFile == "" {
+						return "file_mismatch"
+					}
+					return "section_mismatch"
+				}())
+		}
+	}
+
+	// Log unmatched citations
+	for citedFile, sections := range citedFiles {
+		for citedSection := range sections {
+			key := citedFile + ":" + citedSection
+			if !matchedCitations[key] {
+				logger.WarnContext(ctx, "citation not matched to any chunk",
+					"cited_file", citedFile,
+					"cited_section", citedSection)
+			}
+		}
+	}
+
+	logger.InfoContext(ctx, "citation extraction completed",
+		"citations_found", citationCount,
+		"references_matched", len(references),
+		"total_chunks", len(chunks))
+
+	return references
 }
 
 // Ask answers a question using RAG.
@@ -766,15 +1149,6 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	}
 	logger.DebugContext(ctx, "top reranked candidates", "preview", logPreview)
 
-	type chunkData struct {
-		text        string
-		vaultName   string
-		relPath     string
-		headingPath string
-		chunkIndex  int
-		result      vectorstore.SearchResult
-	}
-
 	chunks := make([]chunkData, 0, len(selectedCandidates))
 	for rank, candidate := range selectedCandidates {
 		chunks = append(chunks, chunkData{
@@ -814,13 +1188,15 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	var contextBuilder strings.Builder
 	contextBuilder.WriteString("--- Context from notes ---\n\n")
 
-	for _, chunk := range chunks {
+	for i, chunk := range chunks {
+		contextBuilder.WriteString(fmt.Sprintf("[Chunk %d]\n", i+1))
 		contextBuilder.WriteString(fmt.Sprintf("[Vault: %s] File: %s\n", chunk.vaultName, chunk.relPath))
 		contextBuilder.WriteString(fmt.Sprintf("Section: %s\n", chunk.headingPath))
 		contextBuilder.WriteString(fmt.Sprintf("Content: %s\n\n", chunk.text))
 	}
 
-	contextBuilder.WriteString("--- End Context ---")
+	contextBuilder.WriteString("--- End Context ---\n")
+	contextBuilder.WriteString("\nWhen citing sources, use the format '[File: filename.md, Section: section name]' matching the exact filename and section name from the context above.")
 
 	contextString := contextBuilder.String()
 	logger.InfoContext(ctx, "context formatted for LLM",
@@ -870,8 +1246,8 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 
 	// Call LLM
 	answer, err := e.llmClient.ChatWithMessages(ctx, messages, llm.ChatParams{
-		Model:       "", // Use default from client
-		MaxTokens:   0,  // No limit
+		Model:       "",  // Use default from client
+		MaxTokens:   0,   // No limit
 		Temperature: 0.3, // Lower temperature for more focused, citation-aware responses with less hallucination
 	})
 	if err != nil {
@@ -885,15 +1261,47 @@ func (e *ragEngine) Ask(ctx context.Context, req AskRequest) (AskResponse, error
 	// Generation phase complete
 	generationMs := time.Since(generationStart).Milliseconds()
 
-	// Build references from search results
-	references := make([]Reference, 0, len(chunks))
-	for _, chunk := range chunks {
-		references = append(references, Reference{
-			Vault:       chunk.vaultName,
-			RelPath:     chunk.relPath,
-			HeadingPath: chunk.headingPath,
-			ChunkIndex:  chunk.chunkIndex,
-		})
+	// Extract citations from answer and build references from only cited chunks
+	references := e.extractCitationsFromAnswer(ctx, answer, chunks)
+	if len(references) == 0 {
+		// Check if answer contains any citation-like patterns (even if not in expected format)
+		hasCitationPatterns := false
+		citationPatterns := []string{"[File:", "[file:", "File:", "file:", "Section:", "section:"}
+		answerLower := strings.ToLower(answer)
+		for _, pattern := range citationPatterns {
+			if strings.Contains(answerLower, strings.ToLower(pattern)) {
+				hasCitationPatterns = true
+				break
+			}
+		}
+
+		if hasCitationPatterns {
+			// Answer contains citation-like patterns but extraction failed
+			logger.WarnContext(ctx, "citation patterns detected but extraction failed, falling back to all chunks",
+				"answer_length", len(answer),
+				"chunks_available", len(chunks),
+				"answer_preview", truncateString(answer, 200))
+		} else {
+			// No citation patterns at all
+			logger.InfoContext(ctx, "no citations found in answer, falling back to all chunks",
+				"answer_length", len(answer),
+				"chunks_available", len(chunks))
+		}
+
+		// Fallback: include all chunks (backward compatibility)
+		references = make([]Reference, 0, len(chunks))
+		for _, chunk := range chunks {
+			references = append(references, Reference{
+				Vault:       chunk.vaultName,
+				RelPath:     chunk.relPath,
+				HeadingPath: chunk.headingPath,
+				ChunkIndex:  chunk.chunkIndex,
+			})
+		}
+	} else {
+		logger.InfoContext(ctx, "extracted citations from answer",
+			"citations_found", len(references),
+			"total_chunks", len(chunks))
 	}
 
 	logger.InfoContext(ctx, "RAG query completed", "question_length", len(req.Question), "chunks_used", len(chunks), "answer_length", len(answer))
